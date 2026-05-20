@@ -13,12 +13,20 @@ from __future__ import annotations
 import inspect
 import unittest
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.auth.context import AuthContext
 from app.services.sherlock_v3 import data_specialist as ds_mod
 from app.services.sherlock_v3 import runtime as runtime_mod
 from app.services.sherlock_v3.runtime import SherlockTurnContext, run_turn
+
+
+class _StubEmitter:
+    async def emit(self, part):
+        return part
+
+    async def update(self, part):
+        return part
 
 
 def _make_auth() -> AuthContext:
@@ -41,6 +49,7 @@ def _make_ctx() -> SherlockTurnContext:
         chat_session_id=uuid.uuid4(),
         turn_id=uuid.uuid4(),
         auth=_make_auth(),
+        emitter=_StubEmitter(),  # type: ignore[arg-type]
         previous_response_id=None,
     )
 
@@ -51,28 +60,24 @@ class GroundingPlumbingTests(unittest.IsolatedAsyncioTestCase):
         captured: dict = {}
 
         async def _fake_stream(*_args, **_kwargs):
-            yield {'type': 'turn_finished', 'status': 'done'}
+            return {'input_tokens': 0, 'output_tokens': 0}, None
 
         def _fake_build_supervisor(app_id, client, *, grounding=None, **kwargs):
             captured['app_id'] = app_id
             captured['grounding'] = grounding
             captured['kwargs'] = kwargs
-            return object()  # any sentinel; _stream_once is patched
+            return object()
 
-        with patch.object(runtime_mod, 'get_sherlock_azure_client', new=AsyncMock()), \
+        with patch.object(runtime_mod, 'get_sherlock_azure_client', new=AsyncMock(return_value=(MagicMock(), 'gpt-4o'))), \
              patch.object(runtime_mod, 'build_supervisor', side_effect=_fake_build_supervisor), \
-             patch.object(runtime_mod, '_stream_once', new=_fake_stream):
-            async for _ in run_turn('Pass rate trend by week', ctx):
-                pass
+             patch.object(runtime_mod, '_stream_once', side_effect=_fake_stream):
+            result = await run_turn('Pass rate trend by week', ctx)
 
+        self.assertEqual(result.status, 'done')
         self.assertEqual(captured['app_id'], 'voice-rx')
         grounding = captured['grounding']
         self.assertIsNotNone(grounding, 'grounding kwarg must be supplied')
-        # The user_message must reach the GroundingContext literally —
-        # no truncation, no fallback to chart_title.
         self.assertEqual(grounding.user_message, 'Pass rate trend by week')
-        # Phase 4: intent_class/projection are gone; grounding only
-        # carries user_message + verified_examples + instructions_block.
         self.assertEqual(grounding.app_id, 'voice-rx')
         self.assertFalse(hasattr(grounding, 'intent_class'))
 
@@ -80,15 +85,13 @@ class GroundingPlumbingTests(unittest.IsolatedAsyncioTestCase):
         ctx = _make_ctx()
 
         async def _fake_stream(*_args, **_kwargs):
-            yield {'type': 'turn_finished', 'status': 'done'}
+            return {'input_tokens': 0, 'output_tokens': 0}, None
 
-        with patch.object(runtime_mod, 'get_sherlock_azure_client', new=AsyncMock()), \
+        with patch.object(runtime_mod, 'get_sherlock_azure_client', new=AsyncMock(return_value=(MagicMock(), 'gpt-4o'))), \
              patch.object(runtime_mod, 'build_supervisor', return_value=object()), \
-             patch.object(runtime_mod, '_stream_once', new=_fake_stream):
-            async for _ in run_turn('Top agents by evaluation count', ctx):
-                pass
+             patch.object(runtime_mod, '_stream_once', side_effect=_fake_stream):
+            await run_turn('Top agents by evaluation count', ctx)
 
-        # Scratch must not be used as a user_message side channel.
         self.assertNotIn('user_message', ctx.scratch)
 
 

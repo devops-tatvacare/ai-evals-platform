@@ -8,8 +8,17 @@ from pydantic import Field
 
 from app.schemas.base import CamelModel
 from app.services.reports.config_models import PresentationSectionConfig
+from app.services.reports.contracts.data_quality import DataQualityReport
 from app.services.reports.contracts.print_document import PlatformReportDocument
 from app.services.reports.contracts.report_sections import PlatformReportSection
+
+
+# Phase 2 — narrative_status taxonomy. ``failed`` is reserved: the generic
+# execute_narrative_generation raises on failure today and that surfaces as a
+# job failure, not a completed-with-failed-narrative artifact. The literal
+# exists so a future change can persist a partial artifact without revising
+# the contract.
+NarrativeStatus = Literal["disabled", "skipped_no_model", "completed", "failed"]
 
 
 class PlatformReportMetadata(CamelModel):
@@ -27,6 +36,8 @@ class PlatformReportMetadata(CamelModel):
     llm_provider: str | None = None
     llm_model: str | None = None
     narrative_model: str | None = None
+    narrative_status: NarrativeStatus | None = None
+    narrative_error: str | None = None  # populated only when narrative_status='failed'
     cache_key: str | None = None
 
 
@@ -45,3 +56,7 @@ class PlatformRunReportPayload(CamelModel):
     presentation: PlatformReportPresentation = Field(default_factory=PlatformReportPresentation)
     sections: list[PlatformReportSection]
     export_document: PlatformReportDocument
+    # Defaulted so cache_validation.py:16 round-trips existing cached artifacts
+    # without 409ing on deploy. Services populate ``missing_inputs``; the
+    # finalizer in data_quality_finalizer.py owns ``section_status`` + ``overall``.
+    data_quality: DataQualityReport = Field(default_factory=DataQualityReport)

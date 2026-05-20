@@ -5,7 +5,6 @@ import type { ColumnDef, FilterFieldConfig } from '@/components/ui';
 import {
   ModelBadge,
   VisibilityBadge,
-  detectProvider,
 } from '@/components/ui';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/Popover';
 import { PermissionGate } from '@/components/auth/PermissionGate';
@@ -27,6 +26,7 @@ export interface RunsListRow {
   score: string;
   scoreColor: string;
   scoreBadge?: string;
+  passRate: number | null;
   visibility?: 'private' | 'shared';
   ownerName?: string;
   items?: string;
@@ -162,6 +162,32 @@ function scoreColumn(): ColumnDef<RunsListRow> {
   };
 }
 
+// Pass rate is backend-derived (null for non-adversarial); render N/A when absent.
+function passRateColumn(): ColumnDef<RunsListRow> {
+  return {
+    key: 'passRate',
+    header: 'PASS RATE',
+    width: 'w-20',
+    render: (row) => {
+      if (row.passRate == null) {
+        return <span className="text-sm text-[var(--text-muted)]">N/A</span>;
+      }
+      const v = row.passRate;
+      const color =
+        v >= 0.7
+          ? 'var(--color-success)'
+          : v >= 0.4
+          ? 'var(--color-warning)'
+          : 'var(--color-error)';
+      return (
+        <span className="text-sm font-semibold" style={{ color }}>
+          {`${(v * 100).toFixed(0)}%`}
+        </span>
+      );
+    },
+  };
+}
+
 function statusColumn(options: { showProgress: boolean }): ColumnDef<RunsListRow> {
   return {
     key: 'status',
@@ -269,7 +295,7 @@ function modelColumn(): ColumnDef<RunsListRow> {
       row.modelName ? (
         <ModelBadge
           modelName={row.modelName}
-          provider={row.provider ? detectProvider(row.provider) : undefined}
+          provider={row.provider}
           variant="inline"
         />
       ) : (
@@ -595,7 +621,7 @@ const KAIRA_CONFIG: RunsListConfig = {
   buildColumns: (deps) => [
     typeColumn(),
     nameColumn(),
-    scoreColumn(),
+    passRateColumn(),
     statusColumn({ showProgress: false }),
     visibilityColumn(),
     ownerColumn(),
@@ -716,6 +742,7 @@ export function buildRunsListRow({ run, config }: BuildRowInput): RunsListRow {
     score,
     scoreColor: color,
     scoreBadge: badge,
+    passRate: run.passRate ?? null,
     visibility: run.visibility,
     ownerName: run.ownerName ?? undefined,
     items: config.buildItemsLabel?.(run),

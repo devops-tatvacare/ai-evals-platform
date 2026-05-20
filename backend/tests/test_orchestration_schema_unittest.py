@@ -25,6 +25,14 @@ EXPECTED_TABLES = {
     "workflow_run_recipient_overrides",
     # Phase 10 commit 1
     "provider_connections",
+    # Cohort dataset tables — versions/rows denormalize tenant_id without FK
+    # so only ``cohort_datasets`` shows in tenant_fks below.
+    "cohort_datasets",
+    "cohort_dataset_versions",
+    "cohort_dataset_rows",
+    # Saved cohort definitions (cohorts-P1).
+    "cohort_definitions",
+    "cohort_definition_versions",
 }
 
 
@@ -62,7 +70,7 @@ async def test_partial_unique_index_no_double_dispatch(db_session):
     assert indexdef is not None, "missing partial unique index for double-dispatch guard"
     assert "UNIQUE" in indexdef
     assert "wa_dispatched" in indexdef
-    assert "bolna_queued" in indexdef
+    assert "voice_queued" in indexdef
     # Postgres canonicalizes the predicate; check for both raw and canonical forms.
     assert "'pending'" in indexdef
 
@@ -120,6 +128,14 @@ async def test_cross_schema_fks_to_platform(db_session):
         "workflow_runs",
         # Phase 10 commit 1 — provider_connections.tenant_id → platform.tenants.id.
         "provider_connections",
+        # cohort_datasets.tenant_id → platform.tenants.id; versions/rows
+        # denormalize without FK (cascade via dataset_id).
+        "cohort_datasets",
+        # Saved cohort definitions both carry tenant_id FKs — versions get
+        # one explicitly because they're owned directly (not via a
+        # rows-table denormalization chain).
+        "cohort_definitions",
+        "cohort_definition_versions",
     }
     assert set(tenant_fks) == expected_fk_tables, (
         f"tenant_id FK targets mismatch. expected={expected_fk_tables}, got={set(tenant_fks)}"

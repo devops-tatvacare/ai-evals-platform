@@ -16,16 +16,9 @@ interface ChatInputProps {
   placeholder?: string;
 }
 
-/**
- * Single rounded composer container. Layout (top → bottom):
- *   1. Optional context-attachment chip (BuilderContextChip)
- *   2. Borderless auto-growing textarea
- *   3. Action row: spacer · send/stop button
- *
- * Outer container owns the border + focus-ring (via `focus-within`) so the
- * chip, textarea, and action row read as one unit instead of three stacked
- * widgets. No hex literals; design tokens only.
- */
+const COMPOSER_MAX_HEIGHT_PX = 120;
+const COMPOSER_MAX_CHARS = 12000;
+
 export function ChatInput({ onSend, onStop, disabled, showStop = false, placeholder }: ChatInputProps) {
   const [value, setValue] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -50,25 +43,20 @@ export function ChatInput({ onSend, onStop, disabled, showStop = false, placehol
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT_PX)}px`;
   }, [value]);
 
   const canSend = !!value.trim() && !disabled;
 
   return (
-    <div className="px-2 pb-2 pt-1 border-t border-[var(--border-default)]">
+    <div className="p-2 border-t border-[var(--border-default)]">
       <div
         className={cn(
           'rounded-lg border bg-[var(--bg-secondary)]',
           'border-[var(--border-default)] transition-colors',
           'focus-within:border-[var(--color-brand-accent)]',
           'focus-within:ring-1 focus-within:ring-[var(--color-brand-accent)]',
-          // While the SSE stream is in flight (AbortController active →
-          // parent passes `showStop`), swap the static border for the
-          // rotating conic-gradient ring defined in globals.css. Strips
-          // off automatically the moment the turn terminates.
-          showStop ? 'chat-composer-streaming' : '',
-          disabled ? 'opacity-70' : '',
+          (disabled || showStop) ? 'opacity-60' : '',
         )}
       >
         {showChip ? (
@@ -80,28 +68,28 @@ export function ChatInput({ onSend, onStop, disabled, showStop = false, placehol
           </div>
         ) : null}
 
-        <textarea
-          ref={ref}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-          placeholder={placeholder ?? 'Type a message...'}
-          disabled={disabled}
-          rows={1}
-          className={cn(
-            'block w-full resize-none bg-transparent border-0 outline-none',
-            'px-3 pt-2 pb-1 text-[13px] leading-snug',
-            'text-[var(--text-primary)] placeholder:text-[var(--text-muted)]',
-            'min-h-[28px] max-h-[120px]',
-          )}
-        />
-
-        <div className="flex items-center justify-end gap-1 px-1.5 pb-1.5">
+        <div className="flex items-end gap-1.5 px-2 py-1.5">
+          <textarea
+            ref={ref}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            placeholder={placeholder ?? 'Type a message...'}
+            disabled={disabled}
+            rows={1}
+            maxLength={COMPOSER_MAX_CHARS}
+            className={cn(
+              'block flex-1 min-w-0 resize-none bg-transparent border-0 outline-none overflow-y-auto',
+              'py-0.5 text-[13px] leading-snug',
+              'text-[var(--text-primary)] placeholder:text-[var(--text-muted)]',
+            )}
+            style={{ maxHeight: `${COMPOSER_MAX_HEIGHT_PX}px` }}
+          />
           {showStop ? (
             <button
               type="button"

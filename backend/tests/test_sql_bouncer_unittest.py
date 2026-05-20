@@ -14,8 +14,8 @@ from app.services.chat_engine.sql_bouncer import (
     apply_server_limit,
     check_after,
     check_before,
-    expand_logical_columns,
 )
+from app.services.chat_engine.semantic_lowering import lower_sql
 from app.services.chat_engine.workbench_catalog import parse_workbench_catalog
 
 
@@ -391,7 +391,7 @@ class R4AllowedColumnsTests(unittest.TestCase):
             "WHERE tenant_id = :tenant_id AND app_id = :app_id "
             "GROUP BY agent"
         )
-        expanded = expand_logical_columns(sql, catalog)
+        expanded = lower_sql(sql, catalog)
         self.assertIn("result_detail", expanded)
         self.assertIn("call_opening", expanded)
         self.assertNotIn("call_opening_score", expanded)
@@ -404,7 +404,7 @@ class R4AllowedColumnsTests(unittest.TestCase):
             "WHERE fe.tenant_id = :tenant_id AND fe.app_id = :app_id "
             "GROUP BY fe.agent"
         )
-        expanded = expand_logical_columns(sql, catalog)
+        expanded = lower_sql(sql, catalog)
         self.assertIn("fe.result_detail", expanded)
         self.assertNotIn("fe.call_opening_score", expanded)
 

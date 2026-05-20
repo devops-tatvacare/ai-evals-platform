@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useCallback, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Minus, GripVertical, MessageCirclePlus, History, AlertCircle } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -17,14 +17,12 @@ function SherlockIcon({ className }: { className?: string }) {
 }
 import { useAppStore, useUIStore } from '@/stores';
 import { useReviewModeStore } from '@/stores/reviewModeStore';
-import { useLLMSettingsStore, hasProviderCredentials } from '@/stores/llmSettingsStore';
+import { useProviderConfigs } from '@/services/api/aiSettingsQueries';
 import { useChatWidgetStore } from './useChatWidget';
-import { findLastChartParts, isChartPart } from './chatWidgetHelpers';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
 import { ChatHistory } from './ChatHistory';
-import { DashboardBar } from './components/DashboardBar';
-import type { ChatProvider, SaveToastPart } from './types';
+import type { ChatProvider } from './types';
 import type { AppChatConfig } from '@/types/app.types';
 import { usePermission } from '@/utils/permissions';
 
@@ -87,9 +85,7 @@ export function ChatWidget() {
 
   const open = useChatWidgetStore((s) => s.open);
   const toggle = useChatWidgetStore((s) => s.toggle);
-  const messages = useChatWidgetStore((s) => s.messages);
   const status = useChatWidgetStore((s) => s.status);
-  const defaults = useChatWidgetStore((s) => s.defaults);
   const view = useChatWidgetStore((s) => s.view);
   const setView = useChatWidgetStore((s) => s.setView);
   const send = useChatWidgetStore((s) => s.send);
@@ -99,26 +95,7 @@ export function ChatWidget() {
   const retryLastMessage = useChatWidgetStore((s) => s.retryLastMessage);
   const stopActiveTurn = useChatWidgetStore((s) => s.stopActiveTurn);
   const newChat = useChatWidgetStore((s) => s.newChat);
-  const loadDefaults = useChatWidgetStore((s) => s.loadDefaults);
   const restoreSession = useChatWidgetStore((s) => s.restoreSession);
-  const appendMessagePart = useChatWidgetStore((s) => s.appendMessagePart);
-  const sessionId = useChatWidgetStore((s) => s.sessionId);
-
-  const dashboardCharts = useMemo(() => findLastChartParts(messages), [messages]);
-  const defaultDashboardTitle = useMemo(() => {
-    const first = dashboardCharts[0];
-    const firstTitle = first?.payload?.title?.trim();
-    return firstTitle ? `${firstTitle} dashboard` : 'Untitled dashboard';
-  }, [dashboardCharts]);
-
-  const handleDashboardSaved = useCallback((toast: SaveToastPart) => {
-    const target = [...messages].reverse().find(
-      (m) => m.role === 'assistant' && m.parts.some(isChartPart),
-    );
-    if (target) {
-      appendMessagePart(target.id, toast);
-    }
-  }, [messages, appendMessagePart]);
 
   // Position state for the EXPANDED widget only — persisted. The collapsed FAB is anchored
   // at DEFAULT_POS (screen bottom-right) and does not read this state.
@@ -198,24 +175,19 @@ export function ChatWidget() {
     document.addEventListener('mouseup', handleUp);
   }, [size.width, size.height]);
 
-  useEffect(() => {
-    if (!defaults) void loadDefaults();
-  }, [defaults, loadDefaults]);
-
-  // Restore active session from sessionStorage on mount
   const restoredRef = useRef(false);
   useEffect(() => {
-    if (restoredRef.current || !defaults) return;
+    if (restoredRef.current) return;
     restoredRef.current = true;
     void restoreSession(currentApp);
-  }, [defaults, currentApp, restoreSession]);
+  }, [currentApp, restoreSession]);
 
   useEffect(() => {
-    if (!defaults || !pendingPrompt) return;
+    if (!pendingPrompt) return;
     const prompt = consumePendingPrompt();
     if (!prompt) return;
     void send(prompt, currentApp);
-  }, [consumePendingPrompt, currentApp, defaults, pendingPrompt, send]);
+  }, [consumePendingPrompt, currentApp, pendingPrompt, send]);
 
   // Reset chat when app changes — session is app-scoped
   const prevAppRef = useRef(currentApp);
@@ -226,20 +198,17 @@ export function ChatWidget() {
     }
   }, [currentApp, newChat]);
 
-  const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
-  const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
-  const azureEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
-
-  const credState = {
-    geminiApiKey: '',
-    openaiApiKey,
-    azureOpenaiApiKey: azureApiKey,
-    azureOpenaiEndpoint: azureEndpoint,
-    anthropicApiKey: '',
-    _serviceAccountConfigured: false,
-  };
+  // Sherlock requires OpenAI-family credentials (OpenAI or Azure OpenAI),
+  // resolved server-side from the admin's tenant_llm_credentials rows.
+  const { data: providerConfigs = [] } = useProviderConfigs();
+  const hasOpenAIFamily = providerConfigs.some(
+    (c) =>
+      c.isEnabled &&
+      c.validationStatus === 'ok' &&
+      (c.provider === 'openai' || c.provider === 'azure_openai'),
+  );
   const providerDisabled: Record<ChatProvider, boolean> = {
-    openai: !hasProviderCredentials('openai', credState) && !hasProviderCredentials('azure_openai', credState),
+    openai: !hasOpenAIFamily,
   };
 
   const handleSend = useCallback(
@@ -264,7 +233,7 @@ export function ChatWidget() {
   if (chatConfig.enabled === false) return null;
 
   const isStreaming = status === 'sending';
-  const canSend = !providerDisabled.openai && status !== 'sending' && !!defaults;
+  const canSend = !providerDisabled.openai && status !== 'sending';
   const needsCredentials = providerDisabled.openai;
   const settingsPath = settingsRouteForApp(currentApp);
 
@@ -398,25 +367,12 @@ export function ChatWidget() {
       ) : (
         <>
           <ChatMessages
-            messages={messages}
             status={status}
             appId={currentApp}
             onRetry={handleRetry}
             promptTemplates={chatConfig.promptTemplates}
             onPromptSelect={(prompt) => openWithPrompt(prompt, currentApp)}
           />
-
-          {dashboardCharts.length >= 2 && status !== 'sending' ? (
-            <div className="px-3 py-2">
-              <DashboardBar
-                appId={currentApp}
-                sessionId={sessionId}
-                charts={dashboardCharts}
-                defaultTitle={defaultDashboardTitle}
-                onSaved={handleDashboardSaved}
-              />
-            </div>
-          ) : null}
 
           {needsCredentials ? (
             <div className="mx-3 mb-2 rounded-md border border-[var(--border-warning)] bg-[var(--surface-warning)] px-3 py-2 flex items-start gap-2 text-[12px] text-[var(--text-primary)]">
@@ -446,11 +402,9 @@ export function ChatWidget() {
             disabled={!canSend}
             showStop={isStreaming}
             placeholder={
-              !defaults
-                ? 'Loading...'
-                : needsCredentials
-                  ? 'Configure an LLM to start chatting'
-                  : `Ask about ${currentApp}...`
+              needsCredentials
+                ? 'Configure an LLM to start chatting'
+                : `Ask about ${currentApp}...`
             }
           />
         </>

@@ -308,6 +308,9 @@ class RefLlmModelsCatalog(Base):
     supports_attachment: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text('false')
     )
+    supports_structured_output: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text('false')
+    )
     modalities_input: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
     )

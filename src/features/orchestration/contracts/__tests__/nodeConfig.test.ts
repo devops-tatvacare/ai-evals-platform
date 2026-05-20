@@ -8,18 +8,17 @@ import {
 } from "../nodeConfig";
 
 describe("parseNodeConfig — discriminator + strict mode", () => {
-  it("parses a known-good Bolna call config without issues", () => {
-    const result = parseNodeConfig("crm.place_bolna_call", {
+  it("parses a known-good core.webhook_out config without issues", () => {
+    const result = parseNodeConfig("core.webhook_out", {
       connection_id: "11111111-1111-1111-1111-111111111111",
-      template_slug: "bolna_default",
-      agent_id: "agent-uuid",
-      from_phone: "",
-      phone_field: "phone",
-      variable_mappings: [],
+      url: "https://api.example.com/in",
+      method: "POST",
+      headers: {},
+      body: {},
+      timeout_seconds: 10,
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      // Discriminator stripped before write-back so on-wire shape is preserved.
       expect(result.data).not.toHaveProperty("nodeType");
       expect(result.data.connection_id).toBe(
         "11111111-1111-1111-1111-111111111111",
@@ -27,24 +26,10 @@ describe("parseNodeConfig — discriminator + strict mode", () => {
     }
   });
 
-  it("parses a known-good WATI config without issues", () => {
-    const result = parseNodeConfig("crm.send_wati", {
-      connection_id: "c-1",
-      template_slug: "wati_default",
-      template_name: "concierge_priority",
-      channel_number: "+919999999999",
-      broadcast_name: "concierge_2026_05",
-      phone_field: "whatsapp_number",
-      variable_mappings: [],
-    });
-    expect(result.ok).toBe(true);
-  });
-
   it("surfaces unknown extra keys as parse issues (strict)", () => {
-    const result = parseNodeConfig("crm.send_wati", {
+    const result = parseNodeConfig("core.webhook_out", {
       connection_id: "c-1",
-      template_slug: "wati_default",
-      // Inject an unknown field — strict mode should reject.
+      url: "https://api.example.com/in",
       definitely_not_a_real_field: "oops",
     });
     expect(result.ok).toBe(false);
@@ -58,15 +43,15 @@ describe("parseNodeConfig — discriminator + strict mode", () => {
   });
 
   it("strict mode still treats omitted required fields as parse issues", () => {
-    const result = parseNodeConfig("crm.send_wati", {});
+    const result = parseNodeConfig("core.webhook_out", {});
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.issues.some((i) => i.field === "connection_id")).toBe(true);
+      expect(result.issues.some((i) => i.field === "url")).toBe(true);
     }
   });
 
   it("draft mode treats omitted required fields as incomplete authoring, not parse issues", () => {
-    const result = parseNodeConfig("crm.send_wati", {}, { mode: "draft" });
+    const result = parseNodeConfig("core.webhook_out", {}, { mode: "draft" });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.data).toEqual({});
@@ -75,7 +60,7 @@ describe("parseNodeConfig — discriminator + strict mode", () => {
 
   it("draft mode still surfaces unknown extra keys when required fields are omitted", () => {
     const result = parseNodeConfig(
-      "crm.send_wati",
+      "core.webhook_out",
       {
         definitely_not_a_real_field: "oops",
       },
@@ -168,14 +153,6 @@ describe("parseNodeConfig — discriminator + strict mode", () => {
     expect(drift.ok).toBe(false);
   });
 
-  it("source.cohort_query rejects unsupported filter op", () => {
-    const result = parseNodeConfig("source.cohort_query", {
-      source_ref: "crm.lead_record",
-      filters: [{ column: "status", op: "matches_regex", value: ".*" }],
-    });
-    expect(result.ok).toBe(false);
-  });
-
   it("every issue surviving draft mode is hard", () => {
     // Draft mode pre-filters missing-required-field cases inside
     // parseNodeConfig. Anything that comes out is structurally bad and
@@ -201,10 +178,8 @@ describe("parseNodeConfig — discriminator + strict mode", () => {
   });
 
   it("missing required fields on a partial draft do NOT produce any parse issues", () => {
-    // The save gate's only signal is `!result.ok`. A blank crm.send_wati
-    // is the canonical partial-draft state (Sherlock authoring path);
-    // it must parse cleanly so the gate does not false-positive.
-    const result = parseNodeConfig("crm.send_wati", {}, { mode: "draft" });
+    // A blank core.webhook_out is the canonical partial-draft state — must parse cleanly.
+    const result = parseNodeConfig("core.webhook_out", {}, { mode: "draft" });
     expect(result.ok).toBe(true);
   });
 
@@ -234,7 +209,7 @@ describe("parseNodeConfig — discriminator + strict mode", () => {
   });
 
   it("returns the raw object on non-object input", () => {
-    const result = parseNodeConfig("crm.send_wati", null);
+    const result = parseNodeConfig("core.webhook_out", null);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       // Strict mode still surfaces missing required fields — the store uses

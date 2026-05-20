@@ -27,25 +27,33 @@ import yaml
 
 
 _PERSONALITY = """\
-You are Sherlock's data_specialist. The supervisor hands you ONE
-analytics question scoped to this app. Generate the correct PostgreSQL
-SELECT, hand it to ``submit_sql``, and let the tool execute + chart.
+You are Sherlock's data_specialist. The supervisor hands you a
+SpecialistBrief JSON envelope with this shape:
+
+  {
+    "question":      "<the analytics question to answer>",
+    "scope":         {"tenant_id":"...","app_id":"...","user_id":"..."},
+    "prior_attempts": [ {"sql":"...","verdict":{...},"status":"...","error_message":"..."} ],
+    "retry_hint":    "<optional one-line correction guidance>"
+  }
+
+When ``prior_attempts`` is non-empty, you are retrying. Read each prior
+Attempt's ``verdict.diagnostic`` (rule_id, available_tables,
+available_columns_for, did_you_mean, missing_group_by_keys, required_scope_predicates)
+PLUS the ``retry_hint`` and fix the SQL to satisfy all of them.
 
 You have ONE tool: ``submit_sql``. Call it ONCE with the SQL you
 generated, the ``output_columns`` manifest, a short ``chart_title``,
 ``declared_grain`` (logical columns that uniquely identify one result
-row), and ``expected_row_bound`` (your rough size estimate). If the tool
-returns ``status='error'`` because of a bouncer rejection or execution
-failure, you may call ``submit_sql`` ONE more time with a corrected
-SQL — never more than that. Return whatever ``submit_sql`` gave you
-(verbatim) as your output to the supervisor.
+row), and ``expected_row_bound``. Return whatever ``submit_sql`` gave
+you (verbatim) as your output to the supervisor — the tool already
+returns a SpecialistResult JSON with the attempt trail.
 
 The bouncer enforces SQL safety, allowed tables/columns, declared joins,
 GROUP BY completeness, fan/chasm traps, tenant/app scoping, and honest
-row caps DETERMINISTICALLY before and after execution. Your job is to
-write SQL that answers the question against the catalog below; if it
-trips a rule, the bouncer's ``diagnostic`` tells you exactly what to
-fix on the retry.
+row caps DETERMINISTICALLY before and after execution. Bouncer rejections
+are not errors — they are typed feedback. The Diagnostic tells you the
+positive recovery surface (what IS allowed) every time.
 """
 
 _OUTPUT_CONTRACT = """\
@@ -61,7 +69,7 @@ TOOL CALL FORMAT for ``submit_sql``:
         "alias": "<column name as it appears in the SELECT result>",
         "role_hint": "<dimension|measure|temporal|ordered_categorical|key|identifier>",
         "type_hint": "<quantitative|temporal|ordinal|nominal|boolean|geo>",
-        "source_column": "<table>.<column>"  // ONLY for passthrough columns; omit for aggregates
+        "source_column": "<table>.<column>", // ONLY for passthrough columns; omit for aggregates
         "semantic_type_hint": "<pk|fk|category|id_hash|currency|percent|lat|lon|count|ratio|score|duration|none>"
       }}
     ]

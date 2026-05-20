@@ -1,12 +1,7 @@
 /**
- * Cost & usage dashboard store.
- *
- * Mirrors the platform convention (see `crossRunStore.ts`): lazy load with
- * skip-if-ready, explicit refresh, per-slice `filtersKey` tracking so that
- * stale slices re-fetch on next visit rather than eagerly.
- *
- * Fan-out contract §10.8: zero TTL, zero background revalidation. The only
- * automatic trigger is "slice is idle and tab is active".
+ * Cost & usage dashboard store. Lazy load with skip-if-ready, explicit refresh,
+ * per-slice `filtersKey` tracking so stale slices re-fetch on next visit.
+ * Zero TTL, zero background revalidation — slice idle + tab active is the only trigger.
  */
 import { create } from 'zustand';
 import { costApi } from '@/services/api/costApi';

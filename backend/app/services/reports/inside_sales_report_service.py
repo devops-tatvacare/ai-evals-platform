@@ -18,6 +18,7 @@ from app.schemas.app_analytics_config import AppAnalyticsConfig
 
 from .base_report_service import BaseReportService
 from .canonical_adapters import adapt_inside_sales_run_report
+from .contracts.data_quality import DataQualityReport
 from .contracts.run_report import PlatformRunReportPayload
 from .inside_sales_aggregator import aggregate_multi_evaluator
 from .inside_sales_narrator import InsideSalesNarrator
@@ -56,7 +57,7 @@ class InsideSalesReportService(BaseReportService):
     ) -> PlatformRunReportPayload:
         thread_dicts = source_data["threads"]
 
-        output_schemas, evaluator_names = await self._load_evaluator_schemas(run, thread_dicts)
+        output_schemas, evaluator_names, schema_missing_inputs = await self._load_evaluator_schemas(run, thread_dicts)
         agent_names = await self._load_agent_names(thread_dicts)
 
         aggregate_data = aggregate_multi_evaluator(
@@ -117,16 +118,28 @@ class InsideSalesReportService(BaseReportService):
             per_evaluator=per_evaluator_payload or None,
         )
         analytics_config = await self._load_analytics_config(run.app_id)
-        return adapt_inside_sales_run_report(payload, analytics_config)
+        adapted = adapt_inside_sales_run_report(payload, analytics_config)
+        # Phase 2 — stamp service-local missing-input markers on the canonical
+        # payload. The finalizer in _compose_single_run_payload owns
+        # section_status + overall; we only contribute missing_inputs.
+        if schema_missing_inputs:
+            adapted = adapted.model_copy(
+                update={'data_quality': DataQualityReport(missing_inputs=schema_missing_inputs)},
+            )
+        return adapted
 
     async def _load_evaluator_schemas(
         self, run: EvaluationRun, threads: list[dict] | None = None,
-    ) -> tuple[dict[str, list[dict]], dict[str, str]]:
+    ) -> tuple[dict[str, list[dict]], dict[str, str], list[str]]:
         """Collect every evaluator referenced by this run's threads and load their schemas.
 
-        Returns (output_schemas, evaluator_names) each keyed by evaluator_id (str).
-        Order follows first-appearance in `result.evaluations[]`, which matches the
-        order the runner attached the evaluators.
+        Returns (output_schemas, evaluator_names, missing_inputs).
+          - schemas + names are keyed by evaluator_id (str), order follows
+            first-appearance in ``result.evaluations[]``.
+          - missing_inputs is the Phase 2 data_quality signal: an empty list
+            means every evaluator referenced by the run loaded cleanly; entries
+            mean a downstream blank-card class is expected and should be
+            surfaced on the artifact rather than passed off as a real zero.
         """
         ordered_ids: list[str] = []
         seen: set[str] = set()
@@ -145,13 +158,13 @@ class InsideSalesReportService(BaseReportService):
 
         if not ordered_ids:
             logger.warning("No evaluator_id found for run %s, using empty schemas", run.id)
-            return {}, {}
+            return {}, {}, ["evaluator_id"]
 
         try:
             uuids = [UUID(eid) for eid in ordered_ids]
         except (ValueError, TypeError) as e:
             logger.warning("Invalid evaluator_id in run %s: %s", run.id, e)
-            return {}, {}
+            return {}, {}, ["evaluator_id:invalid"]
 
         try:
             result = await self.db.execute(
@@ -162,7 +175,7 @@ class InsideSalesReportService(BaseReportService):
             rows = list(result.scalars().all())
         except Exception as e:
             logger.warning("Failed to load evaluator schemas for run %s: %s", run.id, e)
-            return {}, {}
+            return {}, {}, ["evaluator_schema:db_load_failed"]
 
         by_id = {str(r.id): r for r in rows}
         schemas: dict[str, list[dict]] = {}
@@ -171,7 +184,7 @@ class InsideSalesReportService(BaseReportService):
             row = by_id.get(eid)
             schemas[eid] = (row.output_schema if row else []) or []
             names[eid] = row.name if row else eid
-        return schemas, names
+        return schemas, names, []
 
     async def _load_agent_names(self, threads: list[dict]) -> dict[str, str]:
         # rep_external_id (LSQ user id) is the grouping key emitted by the

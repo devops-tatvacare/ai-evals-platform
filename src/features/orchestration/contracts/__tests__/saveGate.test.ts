@@ -8,7 +8,7 @@ import type { HardParseIssueGroup } from "@/features/orchestration/store/workflo
 
 const oneHardGroup: HardParseIssueGroup = {
   nodeId: "n1",
-  nodeType: "crm.send_wati",
+  nodeType: "core.webhook_out",
   hardIssues: [
     { field: "fabricated_key", message: "Unrecognized key", code: "unrecognized_keys" },
   ],
@@ -44,7 +44,7 @@ describe("buildSaveBlockedMessage — single-source notification copy", () => {
   it("singular wording for one issue on one node", () => {
     const msg = buildSaveBlockedMessage([oneHardGroup]);
     expect(msg).toContain("1 schema issue on 1 node");
-    expect(msg).toContain("crm.send_wati");
+    expect(msg).toContain("core.webhook_out");
     expect(msg).toContain("fabricated_key");
   });
 

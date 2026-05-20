@@ -50,7 +50,7 @@ def test_app_config_schema_matches_phase_one_shape():
         authorization={
             "assetPolicies": {
                 "settings": {
-                    "privateOnlyKeys": ["llm-settings"],
+                    "privateOnlyKeys": [],
                 },
             },
         },
@@ -134,7 +134,7 @@ def test_app_config_schema_matches_phase_one_shape():
     assert dumped["rules"]["catalogKey"] == "adversarial-config"
     assert dumped["evaluator"]["dynamicVariableSources"]["registry"] is True
     assert dumped["assetDefaults"]["adversarialContract"] == "shared"
-    assert dumped["authorization"]["assetPolicies"]["settings"]["privateOnlyKeys"] == ["llm-settings"]
+    assert dumped["authorization"]["assetPolicies"]["settings"]["privateOnlyKeys"] == []
     assert dumped["evalRun"]["supportedTypes"] == ["custom", "batch_thread"]
     assert dumped["analytics"]["profile"] == "kaira_v1"
     assert dumped["analytics"]["capabilities"]["pdfExport"] is True
@@ -209,7 +209,8 @@ def test_seeded_apps_expose_explicit_analytics_contracts():
     assert '"profile": "kaira_v1"' in text
     assert '"promptReferencesKey": "report-prompt-references"' in text
     assert '"promptTemplates": [' in text
-    assert 'COMMON_SHERLOCK_CAPABILITIES = ["analytics", "report_builder"]' in text
+    assert 'COMMON_SHERLOCK_CAPABILITIES: list[str] = []' in text
+    assert 'ORCHESTRATION_AUTHORING_CAPABILITIES: list[str] = ["orchestration.authoring"]' in text
 
     assert '"slug": "inside-sales"' in text
     assert '"profile": "inside_sales_v1"' in text

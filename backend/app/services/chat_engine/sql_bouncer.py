@@ -52,7 +52,9 @@ Post-execution
 """
 from __future__ import annotations
 
+import difflib
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -65,14 +67,20 @@ from app.services.chat_engine.granularity_graph import (
     aggregate_at_lowest_grain,
 )
 from app.services.chat_engine.manifest import AppManifest
+from app.services.chat_engine.scope import visible_projection_names
 from app.services.chat_engine.workbench_catalog import (
     WorkbenchCatalog,
     WorkbenchTable,
 )
+from app.services.sherlock_v3.contracts.bouncer import (
+    AvailableJoin,
+    Diagnostic,
+    ExpectedRowBound,
+    JoinKey,
+    Verdict,
+)
 
 logger = logging.getLogger(__name__)
-
-ExpectedRowBound = Literal["single", "small", "medium", "large", "unbounded"]
 
 
 # Server-owned row caps. The LLM declares an expected bound; the server
@@ -88,64 +96,85 @@ ROW_CAPS: dict[ExpectedRowBound, int] = {
 DEFAULT_ROW_CAP = ROW_CAPS["medium"]
 
 
-# ── Verdict types ─────────────────────────────────────────────────────
+# Verdict + Diagnostic moved to ``app.services.sherlock_v3.contracts.bouncer``.
+# Imported above so existing callers ``from app.services.chat_engine.sql_bouncer
+# import Verdict`` keep working.
 
 
-@dataclass(frozen=True)
-class Diagnostic:
-    rule_id: str
-    message: str
-    hint: str | None = None
-    offending_tables: tuple[str, ...] = ()
-    offending_columns: tuple[str, ...] = ()
-
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {"rule_id": self.rule_id, "message": self.message}
-        if self.hint:
-            d["hint"] = self.hint
-        if self.offending_tables:
-            d["offending_tables"] = list(self.offending_tables)
-        if self.offending_columns:
-            d["offending_columns"] = list(self.offending_columns)
-        return d
+# ── Rule metadata derivation ──────────────────────────────────────────
 
 
-@dataclass(frozen=True)
-class Verdict:
-    status: Literal["ok", "invalid"]
-    diagnostic: Diagnostic | None = None
-    # Pre-check side outputs:
-    safe_sql: str | None = None
-    limit_applied: int | None = None
-    row_cap: int | None = None
-    declared_grain: tuple[str, ...] = ()
-    expected_row_bound: ExpectedRowBound | None = None
-    # Post-check side outputs:
-    more_rows_exist: bool | None = None
-    displayed_row_count: int | None = None
+_RULE_ID_RE = re.compile(r'^R(\d+)([a-z]*)\.(.+)$')
 
-    @property
-    def ok(self) -> bool:
-        return self.status == "ok"
 
-    def to_telemetry(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"status": self.status}
-        if self.diagnostic is not None:
-            out["diagnostic"] = self.diagnostic.to_dict()
-            out["rule_id"] = self.diagnostic.rule_id
-        if self.declared_grain:
-            out["declared_grain"] = list(self.declared_grain)
-        if self.expected_row_bound is not None:
-            out["expected_row_bound"] = self.expected_row_bound
-        if self.row_cap is not None:
-            out["row_cap"] = self.row_cap
-        if self.limit_applied is not None:
-            out["limit_applied"] = self.limit_applied
-        if self.more_rows_exist is not None:
-            out["more_rows_exist"] = self.more_rows_exist
-        if self.displayed_row_count is not None:
-            out["displayed_row_count"] = self.displayed_row_count
-        return out
+def _rule_metadata(rule_id: str) -> tuple[int, str]:
+    """Parse ``R<n><sub?>.<snake_name>`` into (n, "Snake name") for human-facing display."""
+    m = _RULE_ID_RE.match(rule_id)
+    if not m:
+        return (0, rule_id)
+    number = int(m.group(1))
+    name_snake = m.group(3)
+    # Title-case the suffix; keep multi-word breaks via underscore split.
+    name = name_snake.replace('_', ' ').strip()
+    if name:
+        name = name[0].upper() + name[1:]
+    return (number, name)
+
+
+def _compose_message(
+    rule_id: str,
+    body: str,
+    *,
+    available_tables: list[str] | None = None,
+    available_columns_for: dict[str, list[str]] | None = None,
+    available_joins: list[AvailableJoin] | None = None,
+    missing_group_by_keys: list[str] | None = None,
+    required_scope_predicates: list[str] | None = None,
+    did_you_mean: dict[str, str] | None = None,
+) -> str:
+    """Compose ``Rule N — Name: <body>. <available_*>. Did you mean: <…>?`` for LLM-facing surface."""
+    number, name = _rule_metadata(rule_id)
+    parts: list[str] = []
+    if number:
+        parts.append(f"Rule {number} — {name}: {body}")
+    else:
+        parts.append(f"{rule_id}: {body}")
+    if did_you_mean:
+        suggestions = ", ".join(
+            f"{bad!r} → {good!r}" for bad, good in sorted(did_you_mean.items())
+        )
+        parts.append(f"Did you mean: {suggestions}")
+    if available_columns_for:
+        cols = "; ".join(
+            f"{t}: [{', '.join(sorted(c)[:12])}]"
+            for t, c in sorted(available_columns_for.items())
+        )
+        parts.append(f"Available columns — {cols}")
+    if available_tables:
+        parts.append(f"Available tables: [{', '.join(sorted(available_tables)[:30])}]")
+    if available_joins:
+        joins = "; ".join(
+            f"{j.many_table} ↔ {j.one_table}" for j in available_joins[:12]
+        )
+        parts.append(f"Available joins: {joins}")
+    if missing_group_by_keys:
+        parts.append(f"Add to GROUP BY: [{', '.join(missing_group_by_keys)}]")
+    if required_scope_predicates:
+        parts.append(
+            f"Required predicates: [{', '.join(required_scope_predicates)}]"
+        )
+    return ". ".join(parts)
+
+
+def _did_you_mean(bad: str, candidates: list[str], *, limit: int = 1) -> str | None:
+    """Closest candidate by edit distance; None if no candidate is close enough."""
+    if not candidates:
+        return None
+    matches = difflib.get_close_matches(bad.lower(), [c.lower() for c in candidates], n=limit, cutoff=0.6)
+    if not matches:
+        return None
+    canon = {c.lower(): c for c in candidates}
+    return canon.get(matches[0], matches[0])
 
 
 # ── Internal AST helpers ──────────────────────────────────────────────
@@ -318,79 +347,8 @@ def _alias_table_map(parsed: _ParsedSelect) -> dict[str, str]:
     return alias_map
 
 
-def expand_logical_columns(sql: str, catalog: WorkbenchCatalog) -> str:
-    """Render executable SQL by replacing derived logical columns.
-
-    The LLM writes catalog logical names such as ``call_opening_score``;
-    Postgres needs the physical expression from the catalog. Passthrough
-    columns are left untouched.
-    """
-    cleaned = _strip_trailing_semicolons(sql).strip()
-    root = _parse(cleaned)
-    if root is None:
-        return cleaned
-    parsed = _flatten_select(root)
-    if parsed is None:
-        return cleaned
-
-    alias_to_table = _alias_table_map(parsed)
-    select_alias_names = {
-        e.alias.lower()
-        for e in parsed.select_expr.expressions
-        if isinstance(e, exp.Alias) and e.alias
-    }
-
-    def _replacement(node: exp.Expression) -> exp.Expression:
-        if not isinstance(node, exp.Column):
-            return node
-        col_name = node.name.lower()
-        if col_name in _UNIVERSAL_COLUMNS or col_name in select_alias_names:
-            return node
-        alias = _column_alias(node)
-        if alias is not None and alias in parsed.cte_names:
-            return node
-
-        logical = None
-        qualifier: str | None = alias
-        if alias is not None:
-            table_name = alias_to_table.get(alias)
-            table = catalog.tables.get(table_name or "")
-            logical = table.logical_column(col_name) if table is not None else None
-        elif not parsed.cte_names:
-            matches: list[tuple[str, WorkbenchTable, Any]] = []
-            for binding in parsed.base_tables:
-                table = catalog.tables.get(binding.table)
-                if table is None:
-                    continue
-                candidate = table.logical_column(col_name)
-                if candidate is not None:
-                    matches.append((binding.alias or binding.table, table, candidate))
-            if len(matches) == 1:
-                qualifier, _table, logical = matches[0]
-
-        if logical is None or not logical.is_derived or logical.expr is None:
-            return node
-        return _physical_expr_for_logical(logical.expr, qualifier)
-
-    expanded = root.transform(_replacement, copy=True)
-    return expanded.sql(dialect=_DIALECT)
-
-
-def _physical_expr_for_logical(expr_sql: str, qualifier: str | None) -> exp.Expression:
-    try:
-        expr = sqlglot.parse_one(expr_sql, read=_DIALECT)
-    except ParseError as exc:
-        raise ValueError(f"invalid workbench logical expression: {expr_sql}") from exc
-
-    if qualifier is None:
-        return expr
-
-    def _qualify(node: exp.Expression) -> exp.Expression:
-        if isinstance(node, exp.Column) and _column_alias(node) is None:
-            return exp.column(node.name, table=qualifier)
-        return node
-
-    return expr.transform(_qualify, copy=True)
+# Logical→physical lowering lives in semantic_lowering.lower_sql.
+# This module's job is rule evaluation (R1–R12) over LOGICAL SQL.
 
 
 def _has_postgres_comment(sql: str) -> bool:
@@ -500,8 +458,6 @@ def _r2_allowed_tables(parsed: _ParsedSelect, catalog: WorkbenchCatalog) -> Verd
     catalog_names = {n.lower() for n in catalog.tables}
     bad: list[str] = []
     for b in parsed.base_tables:
-        # Allow schema-qualified names whose unqualified name matches a
-        # catalog table (e.g. ``analytics.fact_evaluation``).
         if b.table in catalog_names:
             continue
         if any(b.table.startswith(p) for p in _DISALLOWED_TABLE_PREFIXES):
@@ -509,13 +465,20 @@ def _r2_allowed_tables(parsed: _ParsedSelect, catalog: WorkbenchCatalog) -> Verd
             continue
         bad.append(b.table)
     if bad:
+        available = sorted(catalog.tables.keys())
+        did_you_mean: dict[str, str] = {}
+        for bad_name in sorted(set(bad)):
+            suggest = _did_you_mean(bad_name, available)
+            if suggest is not None:
+                did_you_mean[bad_name] = suggest
         return _fail(
             "R2.allowed_tables",
             f"unknown or disallowed tables referenced: {sorted(set(bad))}",
             offending_tables=tuple(sorted(set(bad))),
             hint="use only catalog tables; check the workbench catalog for the list",
+            available_tables=available,
+            did_you_mean=did_you_mean,
         )
-    # Schema sanity — reject explicit information_schema/pg_catalog refs.
     for table in parsed.select_expr.find_all(exp.Table):
         db = (table.db or "").lower()
         if db in _DISALLOWED_SCHEMAS:
@@ -523,8 +486,23 @@ def _r2_allowed_tables(parsed: _ParsedSelect, catalog: WorkbenchCatalog) -> Verd
                 "R2.disallowed_schema",
                 f"references to {db}.* are not allowed",
                 offending_tables=(f"{db}.{table.name}",),
+                available_tables=sorted(catalog.tables.keys()),
             )
     return None
+
+
+def _all_available_joins(graph: GranularityGraph) -> list[AvailableJoin]:
+    return [
+        AvailableJoin(
+            many_table=e.many,
+            one_table=e.one,
+            columns=[
+                JoinKey(many_col=many, one_col=one)
+                for many, one in e.columns
+            ],
+        )
+        for e in graph.edges
+    ]
 
 
 def _r3_declared_joins(
@@ -534,8 +512,6 @@ def _r3_declared_joins(
     tables = [b.table for b in parsed.base_tables if graph.has_table(b.table)]
     if len(tables) <= 1:
         return None
-    # Treat the first table as the seed and require every other table to
-    # connect to *some* table already accepted.
     accepted = {tables[0]}
     pending = list(tables[1:])
     while pending:
@@ -552,6 +528,7 @@ def _r3_declared_joins(
                 f"to {sorted(accepted)} via any declared relationship",
                 offending_tables=tuple(sorted(pending)),
                 hint="add a many_to_one relationship in the catalog or use a different table",
+                available_joins=_all_available_joins(graph),
             )
     bad_pairs = _join_pairs_missing_declared_keys(parsed, graph)
     if bad_pairs:
@@ -560,6 +537,7 @@ def _r3_declared_joins(
             "joined catalog tables must be joined on their declared relationship columns",
             offending_tables=tuple(sorted(bad_pairs)),
             hint="use the relationship columns declared in the workbench catalog",
+            available_joins=_all_available_joins(graph),
         )
     return None
 
@@ -650,20 +628,8 @@ def _matched_declared_edge_key(
 def _r4_allowed_columns(
     parsed: _ParsedSelect, catalog: WorkbenchCatalog
 ) -> Verdict | None:
-    """R4 — every referenced column must be a declared logical column.
-
-    Alias-aware: ``ef.agent`` resolves to ``fact_evaluation.agent`` if
-    ``ef`` aliases ``fact_evaluation``. Unqualified columns are checked
-    against the union of all in-scope catalog tables.
-
-    Columns that the LLM uses as aliases in the SELECT/projection list
-    (``AS foo``) are exempt — those don't have to exist in the catalog.
-    Common always-allowed columns: tenant_id, app_id (every fact table
-    declares these in the manifest even if not in logical columns) — we
-    treat them as universal.
-    """
+    """R4 — referenced columns must be declared logical columns OR projection aliases anywhere in the AST."""
     bindings = {b.alias: b.table for b in parsed.base_tables if b.alias}
-    # Map bare table name -> table name (for ``fact_evaluation.agent``).
     table_names = {b.table: b.table for b in parsed.base_tables}
     alias_map: dict[str, WorkbenchTable] = {}
     for alias, t in bindings.items():
@@ -678,6 +644,8 @@ def _r4_allowed_columns(
         for c in t.all_logical_columns():
             in_scope_columns.add(c.name.lower())
 
+    cte_projection_names = visible_projection_names(parsed.root)
+
     bad: list[str] = []
 
     select_alias_names = {
@@ -688,17 +656,15 @@ def _r4_allowed_columns(
 
     for col in parsed.select_expr.find_all(exp.Column):
         col_name = col.name.lower()
-        # Always-allowed.
         if col_name in _UNIVERSAL_COLUMNS:
             continue
-        # SELECT-projection aliases referenced downstream (ORDER BY foo, …).
         if col_name in select_alias_names:
             continue
-        # CTE references — column may belong to a CTE we don't expand.
+        if col_name in cte_projection_names:
+            continue
         alias = _column_alias(col)
         if alias is not None and alias in parsed.cte_names:
             continue
-        # Alias-prefixed column: must be declared on the bound table.
         if alias is not None:
             t = alias_map.get(alias)
             if t is None:
@@ -707,15 +673,33 @@ def _r4_allowed_columns(
             if t.logical_column(col.name) is None and col_name not in _UNIVERSAL_COLUMNS:
                 bad.append(f"{alias}.{col.name}")
             continue
-        # Unqualified: must exist on at least one in-scope catalog table.
         if col_name not in in_scope_columns:
             bad.append(col.name)
     if bad:
+        available_columns_for: dict[str, list[str]] = {
+            tname: sorted(c.name for c in t.all_logical_columns())
+            for tname, t in (
+                (b.table, catalog.tables[b.table])
+                for b in parsed.base_tables
+                if b.table in catalog.tables
+            )
+        }
+        candidate_pool: list[str] = sorted(
+            {c for cols in available_columns_for.values() for c in cols}
+        )
+        did_you_mean: dict[str, str] = {}
+        for bad_name in sorted(set(bad)):
+            short = bad_name.split('.')[-1]
+            suggest = _did_you_mean(short, candidate_pool)
+            if suggest is not None:
+                did_you_mean[bad_name] = suggest
         return _fail(
             "R4.allowed_columns",
             f"unknown or undeclared columns referenced: {sorted(set(bad))}",
             offending_columns=tuple(sorted(set(bad))),
             hint="use only logical columns declared in the workbench catalog",
+            available_columns_for=available_columns_for,
+            did_you_mean=did_you_mean,
         )
     return None
 
@@ -1193,10 +1177,12 @@ def _r5_group_by_complete(parsed: _ParsedSelect) -> Verdict | None:
     if not non_aggs:
         return None
     if not has_group:
+        missing_keys = [na.sql(dialect=_DIALECT) for na in non_aggs]
         return _fail(
             "R5.missing_group_by",
             "non-aggregated SELECT columns are present but GROUP BY is missing",
             hint="add GROUP BY for every dimension column projected alongside an aggregate",
+            missing_group_by_keys=missing_keys,
         )
     group_keys: set[str] = set()
     for g in (group_clause.expressions if group_clause is not None else []):
@@ -1210,6 +1196,7 @@ def _r5_group_by_complete(parsed: _ParsedSelect) -> Verdict | None:
             "R5.incomplete_group_by",
             f"non-aggregated columns missing from GROUP BY: {missing}",
             offending_columns=tuple(missing),
+            missing_group_by_keys=missing,
         )
     return None
 
@@ -1362,11 +1349,16 @@ def _r7s_tenant_app_scope(
             b.table in app_aliases
         )
         if not (ok_tenant and ok_app):
+            alias_key = b.alias or b.table
             return _fail(
                 "R7s.tenant_app_scope",
                 f"missing tenant_id/app_id filter for {b.table!r}",
                 offending_tables=(b.table,),
                 hint="add tenant_id = :tenant_id AND app_id = :app_id to the WHERE clause",
+                required_scope_predicates=[
+                    f"{alias_key}.tenant_id = :tenant_id",
+                    f"{alias_key}.app_id = :app_id",
+                ],
             )
         return None
     # Multiple catalog tables: every alias must be explicitly scoped.
@@ -1378,6 +1370,10 @@ def _r7s_tenant_app_scope(
                 f"alias {alias_key!r} (table {b.table!r}) is not filtered by "
                 f"tenant_id/app_id; multi-table joins must scope every alias",
                 offending_tables=(b.table,),
+                required_scope_predicates=[
+                    f"{alias_key}.tenant_id = :tenant_id",
+                    f"{alias_key}.app_id = :app_id",
+                ],
                 hint=(
                     f"add {alias_key}.tenant_id = :tenant_id AND "
                     f"{alias_key}.app_id = :app_id"
@@ -1692,15 +1688,40 @@ def _fail(
     hint: str | None = None,
     offending_tables: tuple[str, ...] = (),
     offending_columns: tuple[str, ...] = (),
+    available_tables: list[str] | None = None,
+    available_columns_for: dict[str, list[str]] | None = None,
+    available_joins: list[AvailableJoin] | None = None,
+    missing_group_by_keys: list[str] | None = None,
+    required_scope_predicates: list[str] | None = None,
+    did_you_mean: dict[str, str] | None = None,
 ) -> Verdict:
+    number, name = _rule_metadata(rule_id)
+    composed = _compose_message(
+        rule_id,
+        message,
+        available_tables=available_tables,
+        available_columns_for=available_columns_for,
+        available_joins=available_joins,
+        missing_group_by_keys=missing_group_by_keys,
+        required_scope_predicates=required_scope_predicates,
+        did_you_mean=did_you_mean,
+    )
     return Verdict(
         status="invalid",
         diagnostic=Diagnostic(
             rule_id=rule_id,
-            message=message,
+            rule_number=number,
+            rule_name=name,
+            message=composed,
             hint=hint,
-            offending_tables=offending_tables,
-            offending_columns=offending_columns,
+            offending_tables=list(offending_tables),
+            offending_columns=list(offending_columns),
+            available_tables=list(available_tables or []),
+            available_columns_for={k: list(v) for k, v in (available_columns_for or {}).items()},
+            available_joins=list(available_joins or []),
+            missing_group_by_keys=list(missing_group_by_keys or []),
+            required_scope_predicates=list(required_scope_predicates or []),
+            did_you_mean=dict(did_you_mean or {}),
         ),
     )
 
@@ -1776,6 +1797,5 @@ __all__ = [
     "apply_server_limit",
     "check_after",
     "check_before",
-    "expand_logical_columns",
     "trim_rows",
 ]

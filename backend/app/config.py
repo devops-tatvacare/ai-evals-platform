@@ -16,22 +16,6 @@ class Settings(BaseSettings):
     AZURE_STORAGE_CONNECTION_STRING: str = ""
     AZURE_STORAGE_CONTAINER: str = "evals-files"
 
-    # LLM providers (for Phase 3 batch evaluation jobs)
-    GEMINI_API_KEY: str = ""
-    GEMINI_AUTH_METHOD: str = "api_key"  # "api_key" or "service_account"
-    GEMINI_SERVICE_ACCOUNT_PATH: str = ""
-    GEMINI_MODEL: str = ""
-    OPENAI_API_KEY: str = ""
-    OPENAI_MODEL: str = ""
-    AZURE_OPENAI_API_KEY: str = ""
-    AZURE_OPENAI_ENDPOINT: str = ""
-    AZURE_OPENAI_API_VERSION: str = "2025-03-01-preview"
-    AZURE_OPENAI_MODEL: str = ""
-    ANTHROPIC_API_KEY: str = ""
-    ANTHROPIC_MODEL: str = ""
-    DEFAULT_LLM_PROVIDER: str = "gemini"
-    EVAL_TEMPERATURE: float = 0.1
-
     # Kaira API (for live adversarial testing)
     KAIRA_API_URL: str = ""
     KAIRA_AUTH_TOKEN: str = ""
@@ -90,6 +74,12 @@ class Settings(BaseSettings):
     # tenant credentials become unreadable; back up like JWT_SECRET.
     ORCHESTRATION_CONNECTION_KEY: str = ""
 
+    # Process-level Fernet key encrypting platform.tenant_llm_credentials
+    # secret_blob_encrypted JSON blobs. Required — validated on startup.
+    # Loss = all tenant LLM credentials become unreadable; back it up like
+    # JWT_SECRET.
+    LLM_CREDENTIAL_KEY: str = ""
+
     # Upload limits
     MAX_UPLOAD_SIZE_MB: int = 100  # enforced in file upload route
     ALLOWED_UPLOAD_MIMES: str = (
@@ -124,6 +114,19 @@ class Settings(BaseSettings):
 
     # Scheduler engine (shares the worker process; set to 0 to disable)
     SCHEDULER_TICK_INTERVAL_SECONDS: int = 60
+
+    # ─── Mail (transactional sender) ─────────────────────────────────
+    # Single platform-owned mailbox; identity sourced from container env/secrets.
+    # When SMTP_HOST is empty the mail subsystem stays dormant (no-op send,
+    # MailNotConfigured raised at call sites). Production must set all five.
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_ADDRESS: str = ""
+    SMTP_FROM_DISPLAY: str = "TatvaCare Platform"
+    SMTP_USE_STARTTLS: bool = True
+    SMTP_TIMEOUT_SECONDS: float = 15.0
 
     # Logging (used by app/logging_config.py)
     LOG_LEVEL: str = "INFO"

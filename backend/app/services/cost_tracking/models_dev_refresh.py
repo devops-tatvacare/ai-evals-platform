@@ -190,7 +190,7 @@ def _flatten_payload(payload: dict[str, Any]) -> Iterable[dict[str, Any]]:
     for provider_key, entry in (payload or {}).items():
         if provider_key not in ALLOWLIST:
             continue
-        internal_provider, _alias_map = PROVIDER_MAP[provider_key]
+        internal_provider = PROVIDER_MAP[provider_key]
         models = _models_iter(entry)
         for model_entry in models:
             model_id = model_entry.get('id') or model_entry.get('model') or model_entry.get('name')
@@ -211,6 +211,13 @@ def _flatten_payload(payload: dict[str, Any]) -> Iterable[dict[str, Any]]:
                 'supports_reasoning': bool(model_entry.get('reasoning') or False),
                 'supports_tool_call': bool(model_entry.get('tool_call') or False),
                 'supports_attachment': bool(model_entry.get('attachment') or False),
+                # Verified 2026-05-18 against https://models.dev/api.json — chat
+                # models (gpt-4o, gemini-2.5-flash-preview-09-2025, etc) carry
+                # ``structured_output: boolean``. Older / embedding / TTS rows
+                # omit it; bool(None) → False is the right default.
+                'supports_structured_output': bool(
+                    model_entry.get('structured_output') or False
+                ),
                 'modalities_input': _as_list(modalities.get('input')),
                 'modalities_output': _as_list(modalities.get('output')),
                 'open_weights': bool(model_entry.get('open_weights') or False),
@@ -306,6 +313,7 @@ async def _upsert_catalog(
             supports_reasoning=row['supports_reasoning'],
             supports_tool_call=row['supports_tool_call'],
             supports_attachment=row['supports_attachment'],
+            supports_structured_output=row['supports_structured_output'],
             modalities_input=row['modalities_input'],
             modalities_output=row['modalities_output'],
             open_weights=row['open_weights'],
@@ -329,6 +337,7 @@ async def _upsert_catalog(
     existing.supports_reasoning = row['supports_reasoning']
     existing.supports_tool_call = row['supports_tool_call']
     existing.supports_attachment = row['supports_attachment']
+    existing.supports_structured_output = row['supports_structured_output']
     existing.modalities_input = row['modalities_input']
     existing.modalities_output = row['modalities_output']
     existing.open_weights = row['open_weights']

@@ -27,9 +27,9 @@ describe("workflowBuilderStore", () => {
     const s = useWorkflowBuilderStore.getState();
     s.addNode({
       id: "wati-draft",
-      type: "crm.send_wati",
+      type: "core.webhook_out",
       position: { x: 0, y: 0 },
-      data: { label: "WATI", nodeType: "crm.send_wati" },
+      data: { label: "Webhook", nodeType: "core.webhook_out" },
       config: {},
     });
     const node = useWorkflowBuilderStore
@@ -65,9 +65,9 @@ describe("workflowBuilderStore", () => {
     const s = useWorkflowBuilderStore.getState();
     s.addNode({
       id: "n1",
-      type: "crm.send_wati",
+      type: "core.webhook_out",
       position: { x: 0, y: 0 },
-      data: { label: "WATI", nodeType: "crm.send_wati" },
+      data: { label: "Webhook", nodeType: "core.webhook_out" },
       config: {
         connection_id: "c-1",
         template_slug: "wati_default",
@@ -94,9 +94,9 @@ describe("workflowBuilderStore", () => {
     const s = useWorkflowBuilderStore.getState();
     s.addNode({
       id: "n-draft",
-      type: "crm.send_wati",
+      type: "core.webhook_out",
       position: { x: 0, y: 0 },
-      data: { label: "WATI", nodeType: "crm.send_wati" },
+      data: { label: "Webhook", nodeType: "core.webhook_out" },
       config: {},
     });
     s.updateNodeConfig("n-draft", { surprise: "extra" });
@@ -157,9 +157,9 @@ describe("workflowBuilderStore", () => {
     const s = useWorkflowBuilderStore.getState();
     s.addNode({
       id: "n1",
-      type: "crm.send_wati",
+      type: "core.webhook_out",
       position: { x: 0, y: 0 },
-      data: { label: "WATI", nodeType: "crm.send_wati" },
+      data: { label: "Webhook", nodeType: "core.webhook_out" },
       config: {},
     });
     s.updateNodeConfig("n1", { surprise: "extra" });
@@ -228,9 +228,9 @@ describe("workflowBuilderStore", () => {
       nodes: [
         {
           id: "wati-1",
-          type: "crm.send_wati",
+          type: "core.webhook_out",
           position: { x: 0, y: 0 },
-          data: { label: "WATI", nodeType: "crm.send_wati" },
+          data: { label: "Webhook", nodeType: "core.webhook_out" },
           config: {},
         },
       ],
@@ -325,12 +325,11 @@ describe("selectHardParseIssues — save-gate input", () => {
   });
 
   it("does NOT flag partial drafts with only missing required fields", () => {
-    // crm.send_wati requires connection_id + template_slug — both unset
-    // here. Section 5 must keep this case saveable.
+    // core.webhook_out requires connection_id + url — both unset here; partial drafts stay saveable.
     const store = useWorkflowBuilderStore.getState();
     store.addNode({
-      id: "wati",
-      type: "crm.send_wati",
+      id: "wh",
+      type: "core.webhook_out",
       position: { x: 0, y: 0 },
       data: {},
       config: {},

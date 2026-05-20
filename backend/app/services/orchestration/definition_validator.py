@@ -122,22 +122,9 @@ class DispatchRequiredFieldsError(ValueError):
         )
 
 
-# Per Phase 13 keystone #1, these fields cannot be defaulted from seed data
-# or template payloads. Authors fill them via the builder; publish is
-# blocked until they're present. Phase B activates the bolna case; Phase C
-# activates the wati case (template_name / channel_number / broadcast_name).
-_DISPATCH_REQUIRED_FIELDS: dict[str, list[tuple[str, str]]] = {
-    "crm.place_bolna_call": [
-        ("connection_id", "Pick a Bolna provider connection."),
-        ("agent_id", "Pick the live Bolna agent placed on the call."),
-    ],
-    "crm.send_wati": [
-        ("connection_id", "Pick a WATI provider connection."),
-        ("template_name", "Pick the WATI message template."),
-        ("channel_number", "Pick the channel number (sender) the message goes from."),
-        ("broadcast_name", "Set a broadcast/campaign label."),
-    ],
-}
+# Dispatch nodes register their UI-required fields here; publish is gated on presence.
+# Empty in P1 of the vendor-abstraction plan — populated again when messaging.* / voice.* land.
+_DISPATCH_REQUIRED_FIELDS: dict[str, list[tuple[str, str]]] = {}
 
 
 def validate_dispatch_required_fields(

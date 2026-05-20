@@ -1,96 +1,90 @@
 import { useCallback } from 'react';
-import { useLLMSettingsStore, useGlobalSettingsStore } from '@/stores';
-import { Card, PageSurface, Tabs } from '@/components/ui';
+import { Link } from 'react-router-dom';
+
+import { useGlobalSettingsStore } from '@/stores';
+import { useAuthStore } from '@/stores/authStore';
+import { Alert, Card, PageSurface, Tabs } from '@/components/ui';
 import { usePageMetadata } from '@/config/pageMetadata';
+import { routes } from '@/config/routes';
+import { userHasPermission } from '@/utils/permissions';
+import { useCurrentAppConfig } from '@/hooks';
 import { SettingsPanel } from '@/features/settings/components/SettingsPanel';
 import { CollapsibleSection } from '@/features/settings/components/CollapsibleSection';
 import { SettingsSaveBar } from '@/features/settings/components/SettingsSaveBar';
-import { ProviderConfigCard } from '@/features/settings/components/ProviderConfigCard';
 import { TemplatesTab } from '@/features/settings/components/TemplatesTab';
 import { getGlobalSettingsByCategory } from '@/features/settings/schemas/globalSettingsSchema';
 import { useSettingsForm } from '@/features/settings/hooks/useSettingsForm';
-import type { LLMTimeoutSettings, LLMProvider } from '@/types';
+import { resolveSettingsTabs, type SettingsTabSpec } from '@/features/settings/settingsTabs';
+import { useNotificationsSettings } from '@/features/accountSettings/email/useNotificationsSettings';
+import { notificationsSettingsTab } from '@/features/accountSettings/email/notificationsTab';
+import type { NotificationsFormValue } from '@/features/accountSettings/email/notificationsForm';
+import type { LLMTimeoutSettings } from '@/types';
 import type { BaseFormValues } from '@/features/settings/hooks/useSettingsForm';
 
 interface InsideSalesFormValues extends BaseFormValues {
-  provider: LLMProvider;
-  geminiApiKey: string;
-  openaiApiKey: string;
-  azureOpenaiApiKey: string;
-  azureOpenaiEndpoint: string;
-  azureOpenaiApiVersion: string;
-  azureOpenaiDeployments: string;
-  anthropicApiKey: string;
+  notifications: NotificationsFormValue;
 }
 
 export function InsideSalesSettings() {
   const { icon, title } = usePageMetadata('settings');
-  const llmApiKey = useLLMSettingsStore((s) => s.apiKey);
-  const llmProvider = useLLMSettingsStore((s) => s.provider);
-  const llmGeminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
-  const llmOpenaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
-  const llmAzureOpenaiApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
-  const llmAzureOpenaiEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
-  const llmAzureOpenaiApiVersion = useLLMSettingsStore((s) => s.azureOpenaiApiVersion);
-  const llmAzureOpenaiDeployments = useLLMSettingsStore((s) => s.azureOpenaiDeployments);
-  const llmAnthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
   const theme = useGlobalSettingsStore((s) => s.theme);
   const timeouts = useGlobalSettingsStore((s) => s.timeouts);
+  const features = useCurrentAppConfig().features;
+  const user = useAuthStore((s) => s.user);
+  const can = useCallback((action: string) => userHasPermission(user, action), [user]);
+  const notifications = useNotificationsSettings(features.hasNotifications);
 
-  const onSaveApp = useCallback(async () => {
-    // No app-specific settings to save yet
-  }, []);
+  const onSaveApp = useCallback(
+    async (form: InsideSalesFormValues, store: InsideSalesFormValues) => {
+      if (notifications.enabled) {
+        await notifications.save(form.notifications, store.notifications);
+      }
+    },
+    [notifications],
+  );
 
-  const {
-    formValues, isDirty, isSaving, handleChange, handleSave, handleDiscard,
-  } = useSettingsForm<InsideSalesFormValues>({
-    buildStoreValues: () => ({
-      theme,
-      apiKey: llmApiKey,
-      provider: llmProvider,
-      geminiApiKey: llmGeminiApiKey,
-      openaiApiKey: llmOpenaiApiKey,
-      azureOpenaiApiKey: llmAzureOpenaiApiKey,
-      azureOpenaiEndpoint: llmAzureOpenaiEndpoint,
-      azureOpenaiApiVersion: llmAzureOpenaiApiVersion,
-      azureOpenaiDeployments: llmAzureOpenaiDeployments,
-      anthropicApiKey: llmAnthropicApiKey,
-      timeouts: { ...timeouts } as LLMTimeoutSettings,
-    }),
-    deps: [theme, llmApiKey, llmProvider, llmGeminiApiKey, llmOpenaiApiKey, llmAzureOpenaiApiKey, llmAzureOpenaiEndpoint, llmAzureOpenaiApiVersion, llmAzureOpenaiDeployments, llmAnthropicApiKey, timeouts],
-    onSaveApp,
-  });
+  const { formValues, isDirty, isSaving, handleChange, handleSave, handleDiscard } =
+    useSettingsForm<InsideSalesFormValues>({
+      buildStoreValues: () => ({
+        theme,
+        timeouts: { ...timeouts } as LLMTimeoutSettings,
+        notifications: notifications.storeValue,
+      }),
+      deps: [theme, timeouts, notifications.storeValue],
+      onSaveApp,
+    });
 
-  const tabs = [
+  const notificationsValue = formValues.notifications;
+
+  const specs: SettingsTabSpec[] = [
     {
       id: 'appearance',
       label: 'Appearance',
       content: (
         <Card>
-          <SettingsPanel settings={getGlobalSettingsByCategory('appearance')} values={formValues} onChange={handleChange} />
+          <SettingsPanel settings={getGlobalSettingsByCategory('appearance')} values={formValues} onChange={handleChange} layout="inline" />
         </Card>
       ),
     },
+    notificationsSettingsTab(notifications, notificationsValue, (next) => handleChange('notifications', next)),
     {
       id: 'ai',
-      label: 'AI Configuration',
+      label: 'API Configuration',
+      requires: 'configuration:edit',
       content: (
         <div className="space-y-4">
-          <Card>
-            <ProviderConfigCard
-              provider={formValues.provider}
-              geminiApiKey={formValues.geminiApiKey}
-              openaiApiKey={formValues.openaiApiKey}
-              azureOpenaiApiKey={formValues.azureOpenaiApiKey}
-              azureOpenaiEndpoint={formValues.azureOpenaiEndpoint}
-              azureOpenaiApiVersion={formValues.azureOpenaiApiVersion}
-              azureOpenaiDeployments={formValues.azureOpenaiDeployments}
-              anthropicApiKey={formValues.anthropicApiKey}
-              onChange={handleChange}
-            />
-          </Card>
+          <Alert variant="info">
+            LLM providers are configured by an admin in{' '}
+            <Link
+              to={routes.adminLlmProviders}
+              className="font-medium text-[var(--text-brand)] hover:underline"
+            >
+              AI Settings
+            </Link>
+            . Per-user API keys are no longer required.
+          </Alert>
           <CollapsibleSection title="Timeouts" subtitle="LLM request timeout durations (in seconds)">
-            <SettingsPanel settings={getGlobalSettingsByCategory('timeouts')} values={formValues} onChange={handleChange} />
+            <SettingsPanel settings={getGlobalSettingsByCategory('timeouts')} values={formValues} onChange={handleChange} layout="inline" />
           </CollapsibleSection>
         </div>
       ),
@@ -98,9 +92,12 @@ export function InsideSalesSettings() {
     {
       id: 'templates',
       label: 'Templates',
+      requires: 'configuration:edit',
       content: <Card><TemplatesTab /></Card>,
     },
   ];
+
+  const tabs = resolveSettingsTabs(specs, { features, can });
 
   return (
     <PageSurface icon={icon} title={title}>

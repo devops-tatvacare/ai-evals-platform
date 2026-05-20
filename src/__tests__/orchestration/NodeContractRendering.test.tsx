@@ -122,12 +122,12 @@ describe('NodeConfigPanel — descriptor-driven rendering', () => {
 
   it('surfaces requiredPayloadFields and emittedPayloadFields from the descriptor', () => {
     const desc = descriptor({
-      nodeType: 'crm.send_wati',
-      displayLabel: 'WhatsApp Dispatch',
+      nodeType: 'core.webhook_out',
+      displayLabel: 'Webhook Dispatch',
       displayCategory: 'dispatch',
       configSchema: { type: 'object', properties: {} },
-      requiredPayloadFields: ['whatsapp_number'],
-      emittedPayloadFields: ['wati_local_message_id'],
+      requiredPayloadFields: ['recipient_id'],
+      emittedPayloadFields: ['response_id'],
       runtimeContract: {
         executionKind: 'dispatch',
         supportsAttemptPolicy: true,
@@ -138,16 +138,16 @@ describe('NodeConfigPanel — descriptor-driven rendering', () => {
     store.setPaletteCatalog([desc]);
     store.addNode({
       id: 'n1',
-      type: 'crm.send_wati',
+      type: 'core.webhook_out',
       position: { x: 0, y: 0 },
-      data: { label: 'wati' },
+      data: { label: 'webhook' },
       config: {},
     });
     store.setSelectedNode('n1');
     render(<NodeConfigPanel />);
     expect(screen.getByText('Requires payload fields')).toBeInTheDocument();
-    expect(screen.getByText('whatsapp_number')).toBeInTheDocument();
+    expect(screen.getByText('recipient_id')).toBeInTheDocument();
     expect(screen.getByText('Emits payload fields')).toBeInTheDocument();
-    expect(screen.getByText('wati_local_message_id')).toBeInTheDocument();
+    expect(screen.getByText('response_id')).toBeInTheDocument();
   });
 });

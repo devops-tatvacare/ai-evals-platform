@@ -1,8 +1,4 @@
-"""Generic event dispatcher + LSQ webhook handler.
-
-Both fan out to matching workflow_triggers, create one workflow_run + one
-BackgroundJob('run-workflow') per match. The job is queued for the worker.
-"""
+"""Generic event dispatcher — fans out to matching triggers, creates one run + one job per match."""
 from __future__ import annotations
 
 import uuid
@@ -20,7 +16,6 @@ from app.services.orchestration.webhook_handlers.generic_event import (
     EventTriggerConfigurationError,
     fire_event,
 )
-from app.services.orchestration.webhook_handlers.lsq import handle_lsq_event
 
 
 @pytest.mark.asyncio
@@ -161,23 +156,3 @@ async def test_generic_event_requires_recipient_contract(db_session, seed_full_r
         )
 
 
-@pytest.mark.asyncio
-async def test_lsq_handler_dispatches_event(db_session, seed_full_run):
-    run, version, workflow, _step, tenant_id, app_id = seed_full_run
-    workflow.current_published_version_id = version.id
-    db_session.add(WorkflowTrigger(
-        id=uuid.uuid4(), tenant_id=tenant_id, app_id=app_id,
-        workflow_id=workflow.id, kind="event", event_name="lsq.lead.updated",
-        active=True, params={}, created_by=run.triggered_by_user_id,
-    ))
-    await db_session.flush()
-
-    created = await handle_lsq_event(
-        db_session, tenant_id=tenant_id, app_id=app_id,
-        payload={"prospect_id": "P-42", "stage": "Qualified"},
-    )
-    assert len(created) == 1
-    new_run = (await db_session.execute(
-        select(WorkflowRun).where(WorkflowRun.id == created[0])
-    )).scalar_one()
-    assert new_run.params["event_payload"]["prospect_id"] == "P-42"

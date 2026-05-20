@@ -175,7 +175,7 @@ class ApplyPatchReasonCodeTests(unittest.IsolatedAsyncioTestCase):
         ops = _ops({
             'op': 'add_node',
             'node_id': 'n1',
-            'payload': {'node_type': 'crm.send_wati', 'config': 'not an object'},
+            'payload': {'node_type': 'core.webhook_out', 'config': 'not an object'},
         })
         decoded = await self._call(args=_wrap(ops_json=ops))
         self.assertEqual(decoded['meta']['reason_code'], 'NODE_CONFIG_INVALID')
@@ -183,14 +183,14 @@ class ApplyPatchReasonCodeTests(unittest.IsolatedAsyncioTestCase):
     async def test_incomplete_draft_node_is_allowed(self) -> None:
         ops = _ops({
             'op': 'add_node',
-            'node_id': 'wati1',
-            'payload': {'node_type': 'crm.send_wati', 'config': {}},
+            'node_id': 'wh1',
+            'payload': {'node_type': 'core.webhook_out', 'config': {}},
         })
         decoded = await self._call(args=_wrap(ops_json=ops))
         self.assertEqual(decoded['status'], 'ok', msg=decoded)
         artifact = decoded['artifacts'][0]
         self.assertEqual(artifact['kind'], CANVAS_PATCH_CONTRACT_ID)
-        self.assertEqual(artifact['payload']['ops'][0]['node_id'], 'wati1')
+        self.assertEqual(artifact['payload']['ops'][0]['node_id'], 'wh1')
 
     async def test_can_build_draft_canvas_from_empty_registry_nodes(self) -> None:
         ops = _ops(
@@ -201,8 +201,8 @@ class ApplyPatchReasonCodeTests(unittest.IsolatedAsyncioTestCase):
             },
             {
                 'op': 'add_node',
-                'node_id': 'wati1',
-                'payload': {'node_type': 'crm.send_wati', 'config': {}},
+                'node_id': 'wh1',
+                'payload': {'node_type': 'core.webhook_out', 'config': {}},
             },
             {
                 'op': 'add_node',
@@ -215,18 +215,18 @@ class ApplyPatchReasonCodeTests(unittest.IsolatedAsyncioTestCase):
                 'payload': {
                     'source_node_id': 'src',
                     'output_id': 'default',
-                    'target_node_id': 'wati1',
-                    'edge_id': 'e-src-wati',
+                    'target_node_id': 'wh1',
+                    'edge_id': 'e-src-wh1',
                 },
             },
             {
                 'op': 'connect',
-                'node_id': 'wati1',
+                'node_id': 'wh1',
                 'payload': {
-                    'source_node_id': 'wati1',
+                    'source_node_id': 'wh1',
                     'output_id': 'success',
                     'target_node_id': 'done',
-                    'edge_id': 'e-wati-done',
+                    'edge_id': 'e-wh1-done',
                 },
             },
         )
@@ -344,15 +344,15 @@ class ApplyPatchCanonicalValidationTests(unittest.IsolatedAsyncioTestCase):
         ops = _ops(
             {
                 'op': 'add_node',
-                'node_id': 'wati1',
+                'node_id': 'wh1',
                 'payload': {
-                    'node_type': 'crm.send_wati',
-                    'config': {'connection_id': good_uuid, 'template_slug': 'welcome'},
+                    'node_type': 'core.webhook_out',
+                    'config': {'connection_id': good_uuid, 'url': 'https://x/y'},
                 },
             },
             {
                 'op': 'update_node_config',
-                'node_id': 'wati1',
+                'node_id': 'wh1',
                 'payload': {'config_patch': {'fabricated_key': 'oops'}},
             },
         )

@@ -50,10 +50,16 @@ class ReportNarrativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                 data=[],
             ),
         ]
+        # Real LLM output shape — keys match what Pydantic CamelModel emits
+        # for PlatformRunNarrative.model_json_schema() (which IS what
+        # llm.generate_json passes to the SDK via response_json_schema /
+        # response_format=json_schema). The schema property names are
+        # camelCase (`executiveSummary`, `issues`, `promptGaps`, ...) and
+        # required fields are guaranteed present by SDK-side enforcement.
         llm = _FakeLLM(
             {
-                'executive_summary': 'Quality is stable.',
-                'top_issues': [
+                'executiveSummary': 'Quality is stable.',
+                'issues': [
                     {
                         'title': 'Intent slips',
                         'area': 'Intent',
@@ -70,12 +76,12 @@ class ReportNarrativeExecutorTests(unittest.IsolatedAsyncioTestCase):
                     },
                 ],
                 'exemplars': [],
-                'prompt_gaps': [
+                'promptGaps': [
                     {
-                        'gap_type': 'UNDERSPEC',
-                        'prompt_section': 'Escalation',
-                        'evaluation_rule': 'rule-1',
-                        'suggested_fix': 'Add escalation thresholds',
+                        'gapType': 'UNDERSPEC',
+                        'promptSection': 'Escalation',
+                        'evaluationRule': 'rule-1',
+                        'suggestedFix': 'Add escalation thresholds',
                     },
                 ],
             },

@@ -87,23 +87,34 @@ async def upsert_derived_signals(
     ]
     if not rows:
         return 0
-    stmt = pg_insert(FactLeadSignal).values(rows)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=_FRAMEWORK_KEY,
-        index_where=_FRAMEWORK_KEY_WHERE,
-        set_={
-            "signal_definition_id": stmt.excluded.signal_definition_id,
-            "signal_value": stmt.excluded.signal_value,
-            "signal_value_numeric": stmt.excluded.signal_value_numeric,
-            "signal_at": stmt.excluded.signal_at,
-            "confidence": stmt.excluded.confidence,
-            "supporting_quote": stmt.excluded.supporting_quote,
-            "attributes": stmt.excluded.attributes,
-            "source_activity_id": stmt.excluded.source_activity_id,
-            "eval_run_id": stmt.excluded.eval_run_id,
-            "thread_evaluation_id": stmt.excluded.thread_evaluation_id,
-            "sync_run_id": stmt.excluded.sync_run_id,
-        },
-    )
-    await db.execute(stmt)
+    # Postgres caps bind parameters at 65,535 per statement. fact_lead_signal
+    # has 18 columns per row, so a single VALUES (…) tops out around
+    # 65,535 / 18 ≈ 3,640 rows. A 1000-lead batch × 6 signal types per lead
+    # blew past that and asyncpg raised a generic DBAPIError. Chunking to
+    # 500 rows × 18 cols = 9,000 params keeps a comfortable margin for
+    # future schema growth without losing the upsert semantics — the
+    # outer caller is already inside its own transaction and calls
+    # `db.commit()` once after this returns.
+    _CHUNK = 500
+    for start in range(0, len(rows), _CHUNK):
+        chunk = rows[start : start + _CHUNK]
+        stmt = pg_insert(FactLeadSignal).values(chunk)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=_FRAMEWORK_KEY,
+            index_where=_FRAMEWORK_KEY_WHERE,
+            set_={
+                "signal_definition_id": stmt.excluded.signal_definition_id,
+                "signal_value": stmt.excluded.signal_value,
+                "signal_value_numeric": stmt.excluded.signal_value_numeric,
+                "signal_at": stmt.excluded.signal_at,
+                "confidence": stmt.excluded.confidence,
+                "supporting_quote": stmt.excluded.supporting_quote,
+                "attributes": stmt.excluded.attributes,
+                "source_activity_id": stmt.excluded.source_activity_id,
+                "eval_run_id": stmt.excluded.eval_run_id,
+                "thread_evaluation_id": stmt.excluded.thread_evaluation_id,
+                "sync_run_id": stmt.excluded.sync_run_id,
+            },
+        )
+        await db.execute(stmt)
     return len(rows)

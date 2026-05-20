@@ -1,6 +1,0 @@
-{
-  "node_type": "crm.send_wati",
-  "config": {
-    "fabricated_key": "should-be-rejected"
-  }
-}

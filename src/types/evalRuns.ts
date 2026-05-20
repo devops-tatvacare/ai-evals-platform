@@ -93,6 +93,7 @@ export interface EvalRun {
   config: Record<string, unknown>;
   result?: Record<string, unknown>;
   summary?: Record<string, unknown>;
+  passRate?: number | null;
   batchMetadata?: Record<string, unknown>;
   evaluatorDescriptors?: EvaluatorDescriptor[];
   flowType?: string;
@@ -119,7 +120,7 @@ export interface EvalRun {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Batch/Adversarial run types (kaira-evals legacy)
+// Batch/Adversarial run types
 // ═══════════════════════════════════════════════════════════════
 
 export type CorrectnessVerdict =

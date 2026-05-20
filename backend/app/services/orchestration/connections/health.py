@@ -1,21 +1,9 @@
-"""Read-only "test connection" probes per provider.
-
-Each probe returns ``{ok: bool, detail: str}`` and never raises. Phase 10
-commit 1 ships minimal probes that exercise auth + base-url shape; richer
-introspection (Bolna agent variables, WATI templates, LSQ lead schema) lands
-with the frontend connections page in commit 3.
-
-The probes use ``httpx`` directly with bounded timeouts. Mock via
-``_make_client`` from the relevant integration module where one already
-exists; otherwise the probe constructs its own short-timeout client.
-"""
+"""Read-only test-connection probes per provider — return {ok, detail}, never raise."""
 from __future__ import annotations
 
 from typing import Any
 
 import httpx
-
-from app.services.orchestration.integrations.wati import resolve_wati_api_endpoint
 
 
 _TIMEOUT_SECONDS = 10.0
@@ -40,62 +28,6 @@ async def _probe_get(url: str, *, headers: dict[str, str]) -> dict[str, Any]:
         return _fail(f"network error: {exc!r}")
 
 
-async def probe_bolna(config: dict[str, Any]) -> dict[str, Any]:
-    base = config.get("base_url", "").rstrip("/")
-    api_key = config.get("api_key", "")
-    if not base or not api_key:
-        return _fail("missing base_url or api_key")
-    return await _probe_get(
-        f"{base}/v2/agent/all",
-        headers={"Authorization": f"Bearer {api_key}"},
-    )
-
-
-async def probe_wati(config: dict[str, Any]) -> dict[str, Any]:
-    base = config.get("base_url", "").rstrip("/")
-    tid = config.get("wati_tenant_id", "")
-    token = config.get("api_token", "")
-    if not base or not tid or not token:
-        return _fail("missing base_url, wati_tenant_id, or api_token")
-    return await _probe_get(
-        f"{resolve_wati_api_endpoint(base, tid)}/api/v2/getMessageTemplates",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-
-
-async def probe_aisensy(config: dict[str, Any]) -> dict[str, Any]:
-    base = config.get("base_url", "").rstrip("/")
-    api_key = config.get("api_key", "")
-    if not base or not api_key:
-        return _fail("missing base_url or api_key")
-    return await _probe_get(
-        f"{base}/v1/health",
-        headers={"X-API-Key": api_key},
-    )
-
-
-async def probe_lsq(config: dict[str, Any]) -> dict[str, Any]:
-    base = config.get("region_host", "").rstrip("/")
-    access = config.get("access_key", "")
-    secret = config.get("secret_key", "")
-    if not base or not access or not secret:
-        return _fail("missing region_host, access_key, or secret_key")
-    return await _probe_get(
-        f"{base}/v2/Authentication.svc/UserKey.Get?accessKey={access}&secretKey={secret}",
-        headers={},
-    )
-
-
-async def probe_msg91(config: dict[str, Any]) -> dict[str, Any]:
-    auth_key = config.get("auth_key", "")
-    if not auth_key:
-        return _fail("missing auth_key")
-    return await _probe_get(
-        "https://api.msg91.com/api/v5/flow/list",
-        headers={"authkey": auth_key},
-    )
-
-
 async def probe_webhook(config: dict[str, Any]) -> dict[str, Any]:
     base = config.get("base_url", "").rstrip("/")
     header_name = str(config.get("auth_header_name", "")).strip()
@@ -107,11 +39,6 @@ async def probe_webhook(config: dict[str, Any]) -> dict[str, Any]:
 
 
 _PROBES: dict[str, Any] = {
-    "bolna": probe_bolna,
-    "wati": probe_wati,
-    "aisensy": probe_aisensy,
-    "lsq": probe_lsq,
-    "msg91": probe_msg91,
     "webhook": probe_webhook,
 }
 

@@ -56,6 +56,15 @@ class ScheduledJobDefinition(Base, TimestampMixin):
         ForeignKey("platform.users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Denormalized owner email; mirrors IdentityInviteLink.created_by_email_snapshot.
+    # Backfilled from platform.users.email by migration 0065.
+    created_by_user_email_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notify_owner_on_failure: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    notify_emails_on_failure: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
 
     __table_args__ = (
         UniqueConstraint(

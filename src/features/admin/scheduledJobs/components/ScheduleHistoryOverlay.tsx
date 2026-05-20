@@ -18,6 +18,10 @@ import type { Schedule, ScheduleFireSummary } from '../types';
 interface Props {
   schedule: Schedule;
   onClose: () => void;
+  /** Optional deep-link target: highlight + scroll to this fire on open
+   *  and preselect the "Failed" status pill so the failure is visible.
+   *  Used by mail CTAs landing from `?history=&run=`. */
+  focusFireId?: string | null;
 }
 
 const STATUS_OPTIONS: Array<{ id: string; label: string }> = [
@@ -68,7 +72,7 @@ function formatDuration(started: string | null, completed: string | null): strin
   return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 }
 
-export function ScheduleHistoryOverlay({ schedule, onClose }: Props) {
+export function ScheduleHistoryOverlay({ schedule, onClose, focusFireId }: Props) {
   const titleId = useId();
   const fetchDetail = useScheduledJobsStore((state) => state.fetchDetail);
   const entry = useScheduledJobsStore((state) => state.detailById[schedule.id]);
@@ -79,7 +83,7 @@ export function ScheduleHistoryOverlay({ schedule, onClose }: Props) {
   const error = entry?.error ?? null;
 
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<string>(focusFireId ? 'failed' : 'all');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
 
@@ -289,6 +293,12 @@ export function ScheduleHistoryOverlay({ schedule, onClose }: Props) {
               onChange={handleStatusChange}
               size="sm"
             />
+            {focusFireId ? (
+              <div className="rounded-md border border-[var(--border-warning)] bg-[var(--color-warning-light)] px-3 py-2 text-[11px] text-[var(--color-warning-dark)]">
+                Opened from an email alert — showing the failed run{' '}
+                <span className="font-mono">{focusFireId.slice(0, 8)}…{focusFireId.slice(-4)}</span>.
+              </div>
+            ) : null}
           </div>
         </header>
 

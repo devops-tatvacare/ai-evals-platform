@@ -125,7 +125,7 @@ describe('InviteLinksSection', () => {
 
     // Default filter is 'active' — must request server-side.
     await waitFor(() => {
-      expect(mockedListInviteLinks).toHaveBeenCalledWith({ status: 'active' });
+      expect(mockedListInviteLinks).toHaveBeenCalledWith({ status: 'active', include: ['latestSend'] });
     });
 
     // All four labels render (the search filter is empty).
@@ -164,14 +164,48 @@ describe('InviteLinksSection', () => {
     renderSection();
 
     await waitFor(() => {
-      expect(mockedListInviteLinks).toHaveBeenCalledWith({ status: 'active' });
+      expect(mockedListInviteLinks).toHaveBeenCalledWith({ status: 'active', include: ['latestSend'] });
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Terminal' }));
 
     await waitFor(() => {
-      expect(mockedListInviteLinks).toHaveBeenLastCalledWith({ status: 'terminal' });
+      expect(mockedListInviteLinks).toHaveBeenLastCalledWith({ status: 'terminal', include: ['latestSend'] });
     });
+  });
+
+  it('renders latest-send columns only when at least one row has send data', async () => {
+    mockedListInviteLinks.mockResolvedValue([
+      makeInvite({
+        id: 'sent-row',
+        label: 'with-send',
+        status: 'active',
+        latestSendRecipient: 'jane@allowed.com',
+        latestSendStatus: 'sent',
+        latestSendAt: '2026-05-19T10:00:00+00:00',
+      }),
+      makeInvite({ id: 'plain-row', label: 'no-send', status: 'active' }),
+    ]);
+
+    renderSection();
+
+    await screen.findByText('with-send');
+    expect(screen.getByText('Sent to')).toBeInTheDocument();
+    expect(screen.getByText('Last send')).toBeInTheDocument();
+    expect(screen.getByText('jane@allowed.com')).toBeInTheDocument();
+    expect(screen.getByText('Sent')).toBeInTheDocument();
+  });
+
+  it('hides the latest-send columns when no row has send data', async () => {
+    mockedListInviteLinks.mockResolvedValue([
+      makeInvite({ id: 'plain', label: 'plain', status: 'active' }),
+    ]);
+
+    renderSection();
+
+    await screen.findByText('plain');
+    expect(screen.queryByText('Sent to')).not.toBeInTheDocument();
+    expect(screen.queryByText('Last send')).not.toBeInTheDocument();
   });
 
   it('reads initial filter from the URL ?status= param', async () => {
@@ -180,7 +214,7 @@ describe('InviteLinksSection', () => {
     renderSection(['/admin?status=terminal']);
 
     await waitFor(() => {
-      expect(mockedListInviteLinks).toHaveBeenCalledWith({ status: 'terminal' });
+      expect(mockedListInviteLinks).toHaveBeenCalledWith({ status: 'terminal', include: ['latestSend'] });
     });
   });
 

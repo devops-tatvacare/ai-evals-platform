@@ -9,7 +9,6 @@ import { useMeasuredWidth } from '@/features/analytics/useMeasuredWidth';
 import { vegaLiteToRecharts } from '@/features/analytics/vegaLiteToRecharts';
 import { analyticsLibraryApi } from '@/services/api/analyticsLibraryApi';
 import { notificationService } from '@/services/notifications';
-import { cn } from '@/utils/cn';
 
 import type {
   ChartPart,
@@ -18,6 +17,7 @@ import type {
   SaveToastPart,
   VegaLiteSpec,
 } from '../types';
+import { ChatArtifactCard } from './ChatArtifactCard';
 import { ChatKpiCard } from './ChatKpiCard';
 import { ChatSummaryCard } from './ChatSummaryCard';
 import { ChatTableCard } from './ChatTableCard';
@@ -28,7 +28,6 @@ interface ChatChartCardProps {
   sessionId: string | null;
   onSaved?: (chartPart: ChartPart, toast: SaveToastPart) => void;
 }
-
 
 function titleFor(payload: ChartPayload): string | undefined {
   return payload.title?.trim() || undefined;
@@ -64,17 +63,18 @@ export function ChatChartCard({ part, appId, sessionId, onSaved }: ChatChartCard
     }
   }, [payload]);
 
+  const sql = payload.sql_query?.trim();
+  const copyText = sql || copyablePayload(payload);
+  const canCopy = Boolean(copyText);
+  const canSave = payload.kind === 'chart' && chartProps !== null;
+
   const handleCopy = async () => {
-    const sql = payload.sql_query?.trim();
-    const text = sql || copyablePayload(payload);
-    if (!text) return;
-    await navigator.clipboard.writeText(text);
+    if (!copyText) return;
+    await navigator.clipboard.writeText(copyText);
     setCopied(true);
     notificationService.success(sql ? 'SQL copied' : 'Data copied');
     window.setTimeout(() => setCopied(false), 1500);
   };
-
-  const canSave = payload.kind === 'chart' && chartProps !== null;
 
   const handleSave = async () => {
     if (!canSave || saving || part.saved) return;
@@ -84,26 +84,26 @@ export function ChatChartCard({ part, appId, sessionId, onSaved }: ChatChartCard
 
     setSaving(true);
     try {
-        const saved = await analyticsLibraryApi.saveChart({
-          appId,
-          title,
-          sqlQuery: chartPayload.sql_query ?? '',
-          chartConfig: {
-            canonical: {
-              kind: 'chart',
-              spec: chartPayload.spec,
-            },
-            renderer: {
-              type: props.type,
-              xKey: props.xKey,
-              yKey: props.yKey,
-              seriesKeys: props.seriesKeys,
-              xLabel: props.xLabel,
-              yLabel: props.yLabel,
-            },
+      const saved = await analyticsLibraryApi.saveChart({
+        appId,
+        title,
+        sqlQuery: chartPayload.sql_query ?? '',
+        chartConfig: {
+          canonical: {
+            kind: 'chart',
+            spec: chartPayload.spec,
           },
-          sourceQuestion: chartPayload.source_question ?? '',
-          sourceSessionId: sessionId ?? undefined,
+          renderer: {
+            type: props.type,
+            xKey: props.xKey,
+            yKey: props.yKey,
+            seriesKeys: props.seriesKeys,
+            xLabel: props.xLabel,
+            yLabel: props.yLabel,
+          },
+        },
+        sourceQuestion: chartPayload.source_question ?? '',
+        sourceSessionId: sessionId ?? undefined,
       });
 
       onSaved?.(
@@ -127,137 +127,107 @@ export function ChatChartCard({ part, appId, sessionId, onSaved }: ChatChartCard
     }
   };
 
-  // ── Body by kind ────────────────────────────────────────────────
-  if (payload.kind === 'empty') {
-    return (
-      <div className="rounded-md border border-[var(--border-default)] bg-[var(--bg-secondary)] px-4 py-6 text-center text-xs text-[var(--text-muted)]">
-        {titleFor(payload) ?? 'No data for this question.'}
-      </div>
-    );
-  }
-
-  if (payload.kind === 'kpi') {
-    return (
-      <ChatKpiCard
-        kpi={payload.kpi}
-        title={titleFor(payload)}
-        warning={payload.warning ?? undefined}
-      />
-    );
-  }
-
-  if (payload.kind === 'summary') {
-    return (
-      <ChatSummaryCard
-        summary={payload.summary}
-        title={titleFor(payload)}
-        warning={payload.warning ?? undefined}
-      />
-    );
-  }
-
-  if (payload.kind === 'table') {
-    return (
-      <ChatTableCard
-        columns={payload.columns}
-        data={payload.data}
-        title={titleFor(payload)}
-        warning={payload.warning ?? undefined}
-      />
-    );
-  }
-
-  // kind === 'chart'
-  if (!chartProps) {
-    return (
-      <ChatTableCard
-        columns={[]}
-        data={payload.data}
-        title={titleFor(payload)}
-        warning="Could not render chart; showing raw data."
-      />
-    );
-  }
-
   const title = titleFor(payload);
   const question = payload.source_question?.trim();
+  const subtitle = question && question !== title ? question : undefined;
+  const isChart = payload.kind === 'chart' && chartProps !== null;
+  const warning = payload.kind === 'chart' && chartProps === null
+    ? (payload.warning?.trim() || 'Could not render chart; showing raw data.')
+    : payload.warning ?? null;
+
+  const actions = (canCopy || canSave) ? (
+    <>
+      {canCopy ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          icon={copied ? Check : Copy}
+          aria-label={copied ? 'Copied' : 'Copy'}
+          title={copied ? 'Copied' : 'Copy'}
+          onClick={() => void handleCopy()}
+        />
+      ) : null}
+      {payload.kind === 'chart' ? (
+        <Button
+          variant={part.saved ? 'secondary' : 'primary'}
+          size="sm"
+          iconOnly
+          icon={part.saved ? Check : Save}
+          aria-label={part.saved ? 'Saved' : 'Save'}
+          title={part.saved ? 'Saved' : 'Save'}
+          disabled={part.saved || saving || !canSave}
+          isLoading={saving}
+          onClick={() => void handleSave()}
+        />
+      ) : null}
+    </>
+  ) : null;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-secondary)]">
-      <div className="flex items-start justify-between gap-3 border-b border-[var(--border-default)] px-4 py-3">
-        <div className="min-w-0">
-          {title ? (
-            <div className="line-clamp-2 text-sm font-semibold leading-snug text-[var(--text-primary)]">
-              {title}
-            </div>
-          ) : null}
-          {question && question !== title ? (
-            <div className="mt-1 line-clamp-1 text-xs text-[var(--text-muted)]">
-              {question}
-            </div>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={copied ? Check : Copy}
-            onClick={() => void handleCopy()}
-          >
-            {copied ? 'Copied' : 'Copy'}
-          </Button>
-          <Button
-            variant={part.saved ? 'secondary' : 'primary'}
-            size="sm"
-            icon={part.saved ? Check : Save}
-            disabled={part.saved || saving || !canSave}
-            isLoading={saving}
-            onClick={() => void handleSave()}
-          >
-            {part.saved ? 'Saved' : 'Save'}
-          </Button>
-        </div>
+    <ChatArtifactCard
+      kind={payload.kind}
+      title={title}
+      subtitle={subtitle}
+      warning={warning}
+      actions={actions}
+      bodyRef={isChart ? chartFrameRef : undefined}
+      bodyClassName={isChart ? 'px-4 pb-3 pt-2' : undefined}
+    >
+      <ArtifactBody
+        payload={payload}
+        chartProps={chartProps}
+        chartFrameWidth={chartFrameWidth}
+      />
+    </ChatArtifactCard>
+  );
+}
+
+function ArtifactBody({
+  payload, chartProps, chartFrameWidth,
+}: {
+  payload: ChartPayload;
+  chartProps: ReturnType<typeof vegaLiteToRecharts> | null;
+  chartFrameWidth: number | undefined;
+}) {
+  if (payload.kind === 'empty') {
+    return (
+      <div className="py-4 text-center text-xs text-[var(--text-muted)]">
+        No data for this question.
       </div>
-      {payload.warning ? (
-        <div
-          className={cn(
-            'border-b border-[var(--border-warning)] bg-[var(--surface-warning)]',
-            'px-4 py-2 text-[11px] text-[var(--color-warning-dark)]',
-          )}
-        >
-          {payload.warning}
-        </div>
-      ) : null}
-      <div ref={chartFrameRef} className="px-4 pb-3 pt-2">
-        {(() => {
-          const layout = deriveChartLayout({
-            surface: 'chat',
-            type: chartProps.type,
-            dataCount: chartProps.data.length,
-            width: chartFrameWidth,
-            compact: true,
-          });
-          return (
-            <ChartRenderer
-              type={chartProps.type}
-              data={chartProps.data}
-              xKey={chartProps.xKey}
-              yKey={chartProps.yKey}
-              seriesKeys={chartProps.seriesKeys}
-              xLabel={chartProps.xLabel}
-              yLabel={chartProps.yLabel}
-              legendPosition={layout.legendPosition}
-              yAxisWidthOverride={layout.yAxisWidth}
-              marginOverride={layout.margin}
-              tickFontSizeOverride={layout.tickFontSize}
-              xTickCharCapOverride={layout.xTickCharCap}
-              xTickIntervalOverride={layout.xTickInterval}
-              height={layout.height}
-              compact
-            />
-          );
-        })()}
-      </div>
-    </div>
+    );
+  }
+  if (payload.kind === 'kpi') return <ChatKpiCard kpi={payload.kpi} />;
+  if (payload.kind === 'summary') return <ChatSummaryCard summary={payload.summary} />;
+  if (payload.kind === 'table') return <ChatTableCard columns={payload.columns} data={payload.data} />;
+
+  // kind === 'chart': fall back to raw rows when translation failed.
+  if (!chartProps) return <ChatTableCard columns={[]} data={payload.data} />;
+
+  const layout = deriveChartLayout({
+    surface: 'chat',
+    type: chartProps.type,
+    dataCount: chartProps.data.length,
+    width: chartFrameWidth,
+    compact: true,
+  });
+  return (
+    <ChartRenderer
+      type={chartProps.type}
+      data={chartProps.data}
+      xKey={chartProps.xKey}
+      yKey={chartProps.yKey}
+      seriesKeys={chartProps.seriesKeys}
+      xLabel={chartProps.xLabel}
+      yLabel={chartProps.yLabel}
+      legendPosition={layout.legendPosition}
+      yAxisWidthOverride={layout.yAxisWidth}
+      marginOverride={layout.margin}
+      tickFontSizeOverride={layout.tickFontSize}
+      xTickCharCapOverride={layout.xTickCharCap}
+      xTickIntervalOverride={layout.xTickInterval}
+      height={layout.height}
+      compact
+    />
   );
 }

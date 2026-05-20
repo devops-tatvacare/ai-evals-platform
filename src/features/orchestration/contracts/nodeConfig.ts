@@ -49,17 +49,6 @@ const AttemptPolicySchema = z
   })
   .strict();
 
-// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
-// Provider-specific extras are still allowed (e.g. WATI mapping carries
-// `body` / `header` slot keys that the dispatch node forwards verbatim) —
-// `loose` lets unknown keys through unmodified. This is intentional and
-// distinct from the per-node `.strict()` policy at the registry level.
-const VariableMappingSchema = z.looseObject({
-  variable_name: z.string(),
-  payload_field: z.string().optional(),
-  static_value: z.unknown().optional(),
-});
-
 /** Mirrors backend `predicate_contract.parse_predicate`. Recursive — uses
  *  the lazy-evaluator so AND/OR/NOT can reference itself. The leaf schema's
  *  `.transform()` runs `normalizePredicateValueForOperator` so any stale
@@ -149,7 +138,8 @@ const PredicateAstSchema: z.ZodType<PredicateAstOutput, PredicateAstInput> =
 // TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
 // Filter operators mirror backend `_cohort_query_compiler._SUPPORTED_OPS`.
 // Backend validation rejects any other op as a fabricated value.
-const COHORT_FILTER_OPS = [
+// Kept exported because cohort-definition edit forms reuse the same enum.
+export const COHORT_FILTER_OPS = [
   "eq",
   "neq",
   "gte",
@@ -162,30 +152,18 @@ const COHORT_FILTER_OPS = [
 ] as const;
 
 // TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
-export const SourceCohortQueryConfigSchema = z
+export const SourceSavedCohortConfigSchema = z
   .object({
-    nodeType: z.literal("source.cohort_query"),
-    source_ref: z.string().optional(),
-    payload_fields: z.array(z.string()).default([]),
-    // Legacy back-compat (mirrors backend CohortQueryConfig).
-    source_table: z.string().optional(),
-    id_column: z.string().optional(),
-    payload_columns: z.array(z.string()).default([]),
-    filters: z
-      .array(
-        z
-          .object({
-            column: z.string(),
-            op: z.enum(COHORT_FILTER_OPS),
-            value: z.unknown(),
-          })
-          .strict(),
-      )
-      .default([]),
-    lookback_hours: z.number().int().nullable().optional(),
-    lookback_column: z.string().nullable().optional(),
-    consent_gate_channel: z.string().nullable().optional(),
-    next_node_id: z.string().nullable().optional(),
+    nodeType: z.literal("source.saved_cohort"),
+    cohort_definition_version_id: z.uuid(),
+  })
+  .strict();
+
+// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
+export const SourceDatasetConfigSchema = z
+  .object({
+    nodeType: z.literal("source.dataset"),
+    dataset_version_id: z.uuid(),
   })
   .strict();
 
@@ -346,66 +324,6 @@ export const LogicMergeConfigSchema = z
   .strict();
 
 // TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
-export const CrmSendWatiConfigSchema = z
-  .object({
-    nodeType: z.literal("crm.send_wati"),
-    connection_id: z.string().min(1),
-    template_slug: z.string().min(1),
-    template_name: z.string().default(""),
-    channel_number: z.string().default(""),
-    broadcast_name: z.string().default(""),
-    phone_field: z.string().default("whatsapp_number"),
-    variable_mappings: z.array(VariableMappingSchema).default([]),
-    attempt_policy: AttemptPolicySchema.optional(),
-  })
-  .strict();
-
-// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
-export const CrmPlaceBolnaCallConfigSchema = z
-  .object({
-    nodeType: z.literal("crm.place_bolna_call"),
-    connection_id: z.string().min(1),
-    template_slug: z.string().min(1),
-    agent_id: z.string().default(""),
-    from_phone: z.string().default(""),
-    phone_field: z.string().default("phone"),
-    variable_mappings: z.array(VariableMappingSchema).default([]),
-    attempt_policy: AttemptPolicySchema.optional(),
-  })
-  .strict();
-
-// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
-export const CrmSendSmsConfigSchema = z
-  .object({
-    nodeType: z.literal("crm.send_sms"),
-    connection_id: z.string().min(1),
-    template_slug: z.string().min(1),
-    phone_field: z.string().default("phone"),
-    attempt_policy: AttemptPolicySchema.optional(),
-  })
-  .strict();
-
-// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
-export const CrmLsqUpdateStageConfigSchema = z
-  .object({
-    nodeType: z.literal("crm.lsq_update_stage"),
-    connection_id: z.string().min(1),
-    target_stage: z.string().min(1),
-  })
-  .strict();
-
-// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
-export const CrmLsqLogActivityConfigSchema = z
-  .object({
-    nodeType: z.literal("crm.lsq_log_activity"),
-    connection_id: z.string().min(1),
-    activity_event_code: z.number().int(),
-    note: z.string(),
-    fields: z.array(z.record(z.string(), z.unknown())).default([]),
-  })
-  .strict();
-
-// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
 export const CoreWebhookOutConfigSchema = z
   .object({
     nodeType: z.literal("core.webhook_out"),
@@ -420,6 +338,30 @@ export const CoreWebhookOutConfigSchema = z
   .strict();
 
 // TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
+export const MessagingSendWhatsappTemplateConfigSchema = z
+  .object({
+    nodeType: z.literal("messaging.send_whatsapp_template"),
+    connection_id: z.uuid(),
+    template_slug: z.string().min(1),
+    variable_mappings: z.record(z.string(), z.string()).default({}),
+    webhook_ttl_seconds: z.number().int().min(60).default(259200),
+  })
+  .strict();
+
+// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
+export const VoicePlaceCallConfigSchema = z
+  .object({
+    nodeType: z.literal("voice.place_call"),
+    connection_id: z.uuid(),
+    agent_id: z.string().min(1),
+    variable_mappings: z.record(z.string(), z.string()).default({}),
+    from_phone: z.string().nullable().optional(),
+    webhook_ttl_seconds: z.number().int().min(60).default(259200),
+    mode: z.enum(["auto", "single", "batch"]).default("auto"),
+  })
+  .strict();
+
+// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
 export const SinkCompleteConfigSchema = z
   .object({
     nodeType: z.literal("sink.complete"),
@@ -427,81 +369,12 @@ export const SinkCompleteConfigSchema = z
   })
   .strict();
 
-// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
-export const ClinicalScheduleLabConfigSchema = z
-  .object({
-    nodeType: z.literal("clinical.schedule_lab"),
-    test_code: z.string().min(1),
-    test_name: z.string(),
-    frequency: z
-      .enum(["once", "monthly", "quarterly", "biannual", "annual"])
-      .default("once"),
-    notify_roles: z
-      .array(z.enum(["care_manager", "physician", "pharmacist"]))
-      .default(["care_manager"]),
-    urgency: z.enum(["routine", "urgent", "stat"]).default("routine"),
-    attempt_policy: AttemptPolicySchema.optional(),
-  })
-  .strict();
-
-// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
-export const ClinicalAssignCareTeamTaskConfigSchema = z
-  .object({
-    nodeType: z.literal("clinical.assign_care_team_task"),
-    role: z
-      .enum(["care_manager", "physician", "pharmacist", "nutritionist"])
-      .default("care_manager"),
-    task_label: z.string(),
-    cadence: z.enum(["once", "weekly", "monthly"]).default("once"),
-    sla_hours: z.number().int().default(24),
-    attempt_policy: AttemptPolicySchema.optional(),
-  })
-  .strict();
-
-// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
-export const ClinicalSendProAssessmentConfigSchema = z
-  .object({
-    nodeType: z.literal("clinical.send_pro_assessment"),
-    instrument: z
-      .enum(["PHQ9", "DDS", "MMAS", "EQ5D", "PROMIS"])
-      .default("PHQ9"),
-    delivery_channel: z.enum(["sms", "email", "wa"]).default("wa"),
-    attempt_policy: AttemptPolicySchema.optional(),
-  })
-  .strict();
-
-// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
-export const ClinicalEmrWriteConfigSchema = z
-  .object({
-    nodeType: z.literal("clinical.emr_write"),
-    note_type: z
-      .enum(["progress_note", "observation", "encounter", "care_plan_update"])
-      .default("progress_note"),
-    template: z.string(),
-    structured_fields: z.record(z.string(), z.unknown()).default({}),
-  })
-  .strict();
-
-// TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
-export const ClinicalEscalationUptierConfigSchema = z
-  .object({
-    nodeType: z.literal("clinical.escalation_uptier"),
-    target_role: z
-      .enum(["physician", "specialist", "ed", "crisis_team"])
-      .default("physician"),
-    urgency: z
-      .enum(["same_day", "48h", "next_review", "next_month"])
-      .default("same_day"),
-    reason: z.string(),
-    attempt_policy: AttemptPolicySchema.optional(),
-  })
-  .strict();
-
 // ─── Discriminated union over the registry ──────────────────────────────
 
 // TODO: replace with codegen from Pydantic in Phase 16 (openapi-zod-client)
 export const NodeConfigSchema = z.discriminatedUnion("nodeType", [
-  SourceCohortQueryConfigSchema,
+  SourceSavedCohortConfigSchema,
+  SourceDatasetConfigSchema,
   SourceEventTriggerConfigSchema,
   FilterConsentGateConfigSchema,
   FilterEligibilityConfigSchema,
@@ -509,23 +382,16 @@ export const NodeConfigSchema = z.discriminatedUnion("nodeType", [
   LogicSplitConfigSchema,
   LogicWaitConfigSchema,
   LogicMergeConfigSchema,
-  CrmSendWatiConfigSchema,
-  CrmPlaceBolnaCallConfigSchema,
-  CrmSendSmsConfigSchema,
-  CrmLsqUpdateStageConfigSchema,
-  CrmLsqLogActivityConfigSchema,
   CoreWebhookOutConfigSchema,
+  MessagingSendWhatsappTemplateConfigSchema,
+  VoicePlaceCallConfigSchema,
   SinkCompleteConfigSchema,
-  ClinicalScheduleLabConfigSchema,
-  ClinicalAssignCareTeamTaskConfigSchema,
-  ClinicalSendProAssessmentConfigSchema,
-  ClinicalEmrWriteConfigSchema,
-  ClinicalEscalationUptierConfigSchema,
 ]);
 
 const NODE_TYPE_TO_SCHEMA: Record<
   string,
-  | typeof SourceCohortQueryConfigSchema
+  | typeof SourceSavedCohortConfigSchema
+  | typeof SourceDatasetConfigSchema
   | typeof SourceEventTriggerConfigSchema
   | typeof FilterConsentGateConfigSchema
   | typeof FilterEligibilityConfigSchema
@@ -533,20 +399,13 @@ const NODE_TYPE_TO_SCHEMA: Record<
   | typeof LogicSplitConfigSchema
   | typeof LogicWaitConfigSchema
   | typeof LogicMergeConfigSchema
-  | typeof CrmSendWatiConfigSchema
-  | typeof CrmPlaceBolnaCallConfigSchema
-  | typeof CrmSendSmsConfigSchema
-  | typeof CrmLsqUpdateStageConfigSchema
-  | typeof CrmLsqLogActivityConfigSchema
   | typeof CoreWebhookOutConfigSchema
+  | typeof MessagingSendWhatsappTemplateConfigSchema
+  | typeof VoicePlaceCallConfigSchema
   | typeof SinkCompleteConfigSchema
-  | typeof ClinicalScheduleLabConfigSchema
-  | typeof ClinicalAssignCareTeamTaskConfigSchema
-  | typeof ClinicalSendProAssessmentConfigSchema
-  | typeof ClinicalEmrWriteConfigSchema
-  | typeof ClinicalEscalationUptierConfigSchema
 > = {
-  "source.cohort_query": SourceCohortQueryConfigSchema,
+  "source.saved_cohort": SourceSavedCohortConfigSchema,
+  "source.dataset": SourceDatasetConfigSchema,
   "source.event_trigger": SourceEventTriggerConfigSchema,
   "filter.consent_gate": FilterConsentGateConfigSchema,
   "filter.eligibility": FilterEligibilityConfigSchema,
@@ -554,18 +413,10 @@ const NODE_TYPE_TO_SCHEMA: Record<
   "logic.split": LogicSplitConfigSchema,
   "logic.wait": LogicWaitConfigSchema,
   "logic.merge": LogicMergeConfigSchema,
-  "crm.send_wati": CrmSendWatiConfigSchema,
-  "crm.place_bolna_call": CrmPlaceBolnaCallConfigSchema,
-  "crm.send_sms": CrmSendSmsConfigSchema,
-  "crm.lsq_update_stage": CrmLsqUpdateStageConfigSchema,
-  "crm.lsq_log_activity": CrmLsqLogActivityConfigSchema,
   "core.webhook_out": CoreWebhookOutConfigSchema,
+  "messaging.send_whatsapp_template": MessagingSendWhatsappTemplateConfigSchema,
+  "voice.place_call": VoicePlaceCallConfigSchema,
   "sink.complete": SinkCompleteConfigSchema,
-  "clinical.schedule_lab": ClinicalScheduleLabConfigSchema,
-  "clinical.assign_care_team_task": ClinicalAssignCareTeamTaskConfigSchema,
-  "clinical.send_pro_assessment": ClinicalSendProAssessmentConfigSchema,
-  "clinical.emr_write": ClinicalEmrWriteConfigSchema,
-  "clinical.escalation_uptier": ClinicalEscalationUptierConfigSchema,
 };
 
 /** Set of every node type the FE has a schema for. Useful for auditing

@@ -34,21 +34,7 @@ import { PublishErrorPanel } from './PublishErrorPanel';
 
 const SCHEMA_VERSION = 1;
 
-/** Credential / template binding fields stripped when the operator exports
- *  without `includeBindings`. Mirrors the runtime contract: the publish
- *  dispatch-gate (`validate_dispatch_required_fields`) plus the per-node
- *  `_Config` schemas in `backend/app/services/orchestration/nodes/` enforce
- *  these as required at publish — a portable export blanks them so the
- *  importer is forced to re-bind in the builder.
- *
- *  Keep in sync with the node `_Config` models. Today's surface:
- *    - `connection_id` — every dispatch + webhook_out node
- *    - `agent_id` / `from_phone` — `crm.place_bolna_call`
- *    - `template_slug` — `crm.place_bolna_call`
- *    - `template_name` / `channel_number` / `broadcast_name` — `crm.send_wati`
- *    - `template_id` / `provider_template_id` — covers other dispatch
- *      variants that may carry template refs through the FE; harmless to
- *      strip when absent. */
+/** Credential / template binding fields stripped on portable export — the importer must re-bind. */
 const BINDING_FIELDS = [
   'connection_id',
   'agent_id',

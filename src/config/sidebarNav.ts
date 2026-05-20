@@ -3,7 +3,6 @@
  * Both collapsed and expanded sidebar states consume this config.
  */
 import {
-  LayoutDashboard,
   LayoutGrid,
   FileText,
   ListChecks,
@@ -14,9 +13,12 @@ import {
   CalendarClock,
   Workflow,
   Plug,
-  Search,
   Sparkles,
+  SlidersHorizontal,
+  Bell,
+  Gauge,
 } from 'lucide-react';
+import { SherlockIcon } from '@/components/ui';
 import { routes } from './routes';
 import type { AppId } from '@/types';
 
@@ -50,7 +52,6 @@ export interface SidebarNavGroup {
 }
 
 const VOICE_RX_NAV: SidebarNavItem[] = [
-  { to: routes.voiceRx.dashboard, icon: LayoutDashboard, label: 'Dashboard', hidden: true },
   { to: routes.voiceRx.evaluators, icon: FileText, label: 'Evaluators' },
   { to: routes.voiceRx.runs, icon: ListChecks, label: 'Runs' },
   { to: routes.voiceRx.logs, icon: ScrollText, label: 'Logs' },
@@ -58,7 +59,6 @@ const VOICE_RX_NAV: SidebarNavItem[] = [
 ];
 
 const KAIRA_NAV: SidebarNavItem[] = [
-  { to: routes.kaira.dashboard, icon: LayoutDashboard, label: 'Dashboard', hidden: true },
   { to: routes.kaira.evaluators, icon: FileText, label: 'Evaluators' },
   { to: routes.kaira.runs, icon: ListChecks, label: 'Runs' },
   { to: routes.kaira.logs, icon: ScrollText, label: 'Logs' },
@@ -82,7 +82,6 @@ const isCampaignsActive = (pathname: string): boolean => {
 
 const INSIDE_SALES_NAV: SidebarNavItem[] = [
   { to: routes.insideSales.listing, icon: LayoutGrid, label: 'Listing', end: true },
-  { to: routes.insideSales.dashboard, icon: LayoutDashboard, label: 'Dashboard', hidden: true },
   { to: routes.insideSales.evaluators, icon: FileText, label: 'Evaluators' },
   { to: routes.insideSales.runs, icon: ListChecks, label: 'Runs' },
   {
@@ -115,15 +114,22 @@ const ADMIN_SCHEDULED_JOBS_NAV: SidebarNavItem = {
   end: true,
 };
 
+const ADMIN_NOTIFICATIONS_NAV: SidebarNavItem = {
+  to: routes.adminNotifications,
+  icon: Bell,
+  label: 'Notifications',
+  end: true,
+};
+
 const ADMIN_SHERLOCK_NAV: SidebarNavItem = {
   to: routes.adminSherlock,
-  icon: Search,
+  icon: SherlockIcon,
   label: 'Sherlock',
 };
 
 const ADMIN_SHERLOCK_CONFIG_NAV: SidebarNavItem = {
   to: routes.adminSherlockConfig,
-  icon: Sparkles,
+  icon: SherlockIcon,
   label: 'Sherlock Config',
 };
 
@@ -131,6 +137,27 @@ const ADMIN_INTEGRATIONS_NAV: SidebarNavItem = {
   to: routes.adminIntegrations,
   icon: Plug,
   label: 'Integrations',
+  end: true,
+};
+
+const ADMIN_COMM_CAP_NAV: SidebarNavItem = {
+  to: routes.adminCommCap,
+  icon: Gauge,
+  label: 'Reach limits',
+  end: true,
+};
+
+const ADMIN_AI_SETTINGS_NAV: SidebarNavItem = {
+  to: routes.adminLlmProviders,
+  icon: Sparkles,
+  label: 'Model Providers',
+  end: true,
+};
+
+const ADMIN_LLM_DEFAULTS_NAV: SidebarNavItem = {
+  to: routes.adminLlmDefaults,
+  icon: SlidersHorizontal,
+  label: 'LLM Defaults',
   end: true,
 };
 
@@ -164,6 +191,9 @@ interface AdminNavOptions {
   canViewCost: boolean;
   canManageSchedules?: boolean;
   canManageOrchestration?: boolean;
+  canEditConfiguration?: boolean;
+  canManageNotifications?: boolean;
+  canManageCommCap?: boolean;
 }
 
 /**
@@ -190,7 +220,11 @@ export function getAdminNavGroups(options: AdminNavOptions): SidebarNavGroup[] {
       title: 'Operations',
       items: gate([
         [options.canManageSchedules, ADMIN_SCHEDULED_JOBS_NAV],
+        [options.canManageNotifications, ADMIN_NOTIFICATIONS_NAV],
         [options.canManageOrchestration, ADMIN_INTEGRATIONS_NAV],
+        [options.canManageCommCap, ADMIN_COMM_CAP_NAV],
+        [options.canEditConfiguration, ADMIN_AI_SETTINGS_NAV],
+        [options.canEditConfiguration, ADMIN_LLM_DEFAULTS_NAV],
       ]),
     },
     {

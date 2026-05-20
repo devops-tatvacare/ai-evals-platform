@@ -371,6 +371,45 @@ export interface CalloutSection extends PlatformReportSectionBase {
   };
 }
 
+export interface TrendChartPoint {
+  bucket: string;
+  hoverLabel?: string | null;
+  primary: number;
+  breakdown: Record<string, number>;
+}
+
+export interface TrendChartBreakdown {
+  key: string;
+  label: string;
+}
+
+export interface TrendChartSection extends PlatformReportSectionBase {
+  type: 'trend_chart';
+  data: {
+    points: TrendChartPoint[];
+    primaryLabel: string;
+    primaryColor?: string | null;
+    breakdowns: TrendChartBreakdown[];
+    yDomain: [number, number];
+    referenceValue?: number | null;
+    referenceLabel?: string | null;
+  };
+}
+
+export interface InsightPanelsItem {
+  area: string;
+  priority: string;
+  runCount: number;
+  items: { text: string; impacts: string[] }[];
+  stats: { label: string; value: string; success: boolean }[];
+  footerImpacts: string[];
+}
+
+export interface InsightPanelsSection extends PlatformReportSectionBase {
+  type: 'insight_panels';
+  data: InsightPanelsItem[];
+}
+
 export type PlatformReportSection =
   | SummaryCardsSection
   | NarrativeSection
@@ -384,7 +423,20 @@ export type PlatformReportSection =
   | IssuesRecommendationsSection
   | ExemplarsSection
   | PromptGapAnalysisSection
-  | CalloutSection;
+  | CalloutSection
+  | TrendChartSection
+  | InsightPanelsSection;
+
+/**
+ * Phase 2 — narrative_status taxonomy mirror of NarrativeStatus in
+ * backend/app/services/reports/contracts/run_report.py. Optional so older
+ * cached artifacts (no key on disk) deserialize unchanged.
+ */
+export type NarrativeStatus =
+  | 'disabled'
+  | 'skipped_no_model'
+  | 'completed'
+  | 'failed';
 
 export interface PlatformReportMetadata {
   appId: string;
@@ -401,7 +453,26 @@ export interface PlatformReportMetadata {
   llmProvider: string | null;
   llmModel: string | null;
   narrativeModel: string | null;
+  narrativeStatus?: NarrativeStatus | null;
+  narrativeError?: string | null;
   cacheKey: string | null;
+}
+
+/**
+ * Phase 2 — DataQualityReport mirror. Optional on the payload so older cached
+ * artifacts deserialize. Renderer normalizes absent → `{ overall: 'complete',
+ * missingInputs: [], sectionStatus: {} }`.
+ */
+export type DataQualityOverall = 'complete' | 'partial' | 'degraded';
+export type DataQualitySectionStatus =
+  | 'complete'
+  | 'empty'
+  | 'dropped_from_export';
+
+export interface DataQualityReport {
+  overall: DataQualityOverall;
+  missingInputs: string[];
+  sectionStatus: Record<string, DataQualitySectionStatus>;
 }
 
 export interface PlatformReportPresentation {
@@ -426,6 +497,7 @@ export interface PlatformRunReportPayload {
   presentation: PlatformReportPresentation;
   sections: PlatformReportSection[];
   exportDocument: PlatformReportDocument;
+  dataQuality?: DataQualityReport;
 }
 
 export interface PlatformCrossRunMetadata {

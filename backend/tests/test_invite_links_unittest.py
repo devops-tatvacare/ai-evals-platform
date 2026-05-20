@@ -100,6 +100,7 @@ class CreateInviteLinkDualWriteTests(unittest.IsolatedAsyncioTestCase):
             max_uses=5,
             expires_in_hours=72,
         )
+        db.scalar = AsyncMock(return_value=SimpleNamespace(id=uuid.UUID(body.role_id)))
         request = SimpleNamespace(headers={'origin': 'http://localhost:5173'})
         auth = _auth()
 
@@ -141,7 +142,7 @@ class RevokeInviteLinkTests(unittest.IsolatedAsyncioTestCase):
             invite_link_service, 'write_audit_log', new_callable=AsyncMock
         ) as audit_mock:
             result = await admin_routes.revoke_invite_link_v2(
-                link_id=str(invite.id),
+                link_id=invite.id,
                 request=object(),
                 auth=auth,
                 db=db,
@@ -170,7 +171,7 @@ class RevokeInviteLinkTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(HTTPException) as ctx:
             await admin_routes.revoke_invite_link_v2(
-                link_id=str(invite.id),
+                link_id=invite.id,
                 request=object(),
                 auth=auth,
                 db=db,
@@ -192,7 +193,7 @@ class RevokeInviteLinkTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(HTTPException) as ctx:
             await admin_routes.revoke_invite_link_v2(
-                link_id=str(invite.id),
+                link_id=invite.id,
                 request=object(),
                 auth=auth,
                 db=db,
@@ -296,7 +297,7 @@ class HardDeleteInviteLinkTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(HTTPException) as ctx:
             await admin_routes.hard_delete_invite_link(
-                link_id=str(invite.id),
+                link_id=invite.id,
                 request=object(),
                 auth=auth,
                 db=db,
@@ -319,7 +320,7 @@ class HardDeleteInviteLinkTests(unittest.IsolatedAsyncioTestCase):
             invite_link_service, 'write_audit_log', new_callable=AsyncMock
         ) as audit_mock:
             result = await admin_routes.hard_delete_invite_link(
-                link_id=str(invite.id),
+                link_id=invite.id,
                 request=object(),
                 auth=auth,
                 db=db,
@@ -345,7 +346,7 @@ class HardDeleteInviteLinkTests(unittest.IsolatedAsyncioTestCase):
             invite_link_service, 'write_audit_log', new_callable=AsyncMock
         ) as audit_mock:
             result = await admin_routes.hard_delete_invite_link(
-                link_id=str(invite.id),
+                link_id=invite.id,
                 request=object(),
                 auth=auth,
                 db=db,
@@ -383,7 +384,7 @@ class ListInviteLinkUsesTests(unittest.IsolatedAsyncioTestCase):
         db.execute.return_value = execute_result
 
         result = await admin_routes.list_invite_link_uses(
-            link_id=str(invite.id),
+            link_id=invite.id,
             auth=auth,
             db=db,
         )
@@ -409,7 +410,7 @@ class CanonicalDeleteRouteTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(HTTPException) as ctx:
             await admin_routes.hard_delete_invite_link(
-                link_id=str(invite.id),
+                link_id=invite.id,
                 request=object(),
                 auth=auth,
                 db=db,
@@ -522,7 +523,7 @@ class RevokeInviteStatusCorrectionTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(HTTPException) as ctx:
             await admin_routes.revoke_invite_link_v2(
-                link_id=str(invite.id),
+                link_id=invite.id,
                 request=object(),
                 auth=auth,
                 db=db,

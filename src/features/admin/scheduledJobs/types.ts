@@ -27,6 +27,9 @@ export interface Schedule {
   // read-only — the backend returns 403 on PATCH/DELETE/TOGGLE/FIRE-NOW
   // from non-system tenants.
   isPlatformManaged: boolean;
+  notifyOwnerOnFailure: boolean;
+  notifyEmailsOnFailure: string[];
+  createdByUserEmailSnapshot: string | null;
 }
 
 export interface ScheduleOverride {
@@ -96,6 +99,8 @@ export interface ScheduleCreateInput {
   params?: Record<string, unknown>;
   override?: ScheduleOverride;
   enabled?: boolean;
+  notifyOwnerOnFailure?: boolean;
+  notifyEmailsOnFailure?: string[];
 }
 
 export interface ScheduleUpdateInput {
@@ -105,4 +110,6 @@ export interface ScheduleUpdateInput {
   params?: Record<string, unknown>;
   override?: ScheduleOverride;
   enabled?: boolean;
+  notifyOwnerOnFailure?: boolean;
+  notifyEmailsOnFailure?: string[];
 }

@@ -2,8 +2,9 @@
 
 Phase 11A of docs/plans/2026-05-12-analytics-facts-canonical-manifest-thinning.md.
 
-``derive-signals`` runs every enabled ``analytics.signal_definition`` across
-every tenant in one pass — the "T" of ELT. The schedule is owned by
+``derive-signals`` runs every enabled ``scheduled_scan``
+``analytics.signal_definition`` across every tenant in one pass — the
+"T" of ELT. The schedule is owned by
 ``SYSTEM_TENANT_ID`` with ``app_id=""`` (platform-managed, not per-app),
 exactly like the cost-rollup schedule.
 
@@ -83,9 +84,9 @@ async def seed_signal_derivation_schedule(
         schedule_key=SIGNAL_DERIVATION_SCHEDULE_KEY,
         name="Signal derivation",
         description=(
-            "Runs every enabled analytics.signal_definition across all "
-            "tenants, deriving analytics.fact_lead_signal rows from the "
-            "normalized dim/fact surfaces. The 'T' of ELT."
+            "Runs every enabled scheduled_scan analytics.signal_definition "
+            "across all tenants, deriving analytics.fact_lead_signal rows "
+            "from normalized dim/fact surfaces. The 'T' of ELT."
         ),
         cron=SIGNAL_DERIVATION_CRON,
         params={},

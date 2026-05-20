@@ -56,7 +56,7 @@ class WorkbenchFullRolloutTests(unittest.TestCase):
                     'app.services.sherlock_v3.data_specialist.OpenAIResponsesModel',
                     return_value=model_stub,
                 ):
-                    agent = build_data_specialist(client, app_id, grounding=None)
+                    agent = build_data_specialist(client, app_id, model='gpt-5.4', grounding=None)
                 prompt = agent.instructions
                 self.assertIsInstance(prompt, str)
                 self.assertIn('WORKBENCH CATALOG IN EFFECT', prompt)

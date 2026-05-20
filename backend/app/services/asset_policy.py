@@ -16,7 +16,7 @@ ASSET_POLICIES: dict[str, AssetPolicy] = {
     'evaluator': AssetPolicy(),
     'prompt': AssetPolicy(),
     'schema': AssetPolicy(),
-    'settings': AssetPolicy(private_only_keys=frozenset({'llm-settings'})),
+    'settings': AssetPolicy(private_only_keys=frozenset()),
     'workflow': AssetPolicy(),
     'connection': AssetPolicy(forking_enabled=False),
     'dataset': AssetPolicy(forking_enabled=False),

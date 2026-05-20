@@ -437,8 +437,8 @@ async def test_delete_dataset_with_workflow_binding_returns_409(
             "nodes": [
                 {
                     "id": "src",
-                    "type": "source.cohort_query",
-                    "config": {"source_ref": f"dataset.{version_id}"},
+                    "type": "source.dataset",
+                    "config": {"dataset_version_id": str(version_id)},
                 },
             ],
             "edges": [],
@@ -451,3 +451,89 @@ async def test_delete_dataset_with_workflow_binding_returns_409(
     d = await client.delete(f"/api/orchestration/datasets/{dataset_id}")
     assert d.status_code == 409, d.text
     assert workflow_name in d.json()["detail"]
+
+
+# ─── formats endpoint + multi-format upload coverage ─────────────────────────
+
+
+def _xlsx_bytes(rows: list[list[Any]]) -> bytes:
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    for r in rows:
+        ws.append(r)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_formats_endpoint_returns_registered_formats(client):
+    r = await client.get("/api/orchestration/datasets/formats")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert isinstance(body, list)
+    by_source = {h["sourceType"]: h for h in body}
+    assert "csv" in by_source
+    assert "xlsx" in by_source
+    csv_h = by_source["csv"]
+    assert ".csv" in csv_h["extensions"]
+    assert "text/csv" in csv_h["mimeTypes"]
+    assert csv_h["maxUploadBytes"] > 0
+    assert csv_h["label"]
+    assert csv_h["supportsClientPreview"] is True
+
+
+@pytest.mark.asyncio
+async def test_formats_endpoint_requires_auth(unauth_client):
+    r = await unauth_client.get("/api/orchestration/datasets/formats")
+    assert r.status_code in (401, 403), r.text
+
+
+@pytest.mark.asyncio
+async def test_multipart_upload_xlsx_extension(client):
+    create = await client.post(
+        "/api/orchestration/datasets", json=_create_payload(),
+    )
+    dataset_id = create.json()["id"]
+
+    xlsx_bytes = _xlsx_bytes([
+        ["recipient_id", "name", "age"],
+        ["r0", "alice", 30],
+        ["r1", "bob", 25],
+    ])
+    files = {
+        "file": (
+            "rows.xlsx", xlsx_bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ),
+    }
+    data = {"id_strategy": "column", "id_column": "recipient_id"}
+    r = await client.post(
+        f"/api/orchestration/datasets/{dataset_id}/versions",
+        files=files, data=data,
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["sourceType"] == "xlsx"
+    assert body["rowCount"] == 2
+    assert body["idStrategy"] == "column"
+    assert body["idColumn"] == "recipient_id"
+
+
+@pytest.mark.asyncio
+async def test_multipart_upload_unsupported_format_returns_400(client):
+    create = await client.post(
+        "/api/orchestration/datasets", json=_create_payload(),
+    )
+    dataset_id = create.json()["id"]
+
+    files = {"file": ("leads.pdf", b"%PDF-1.4 fake", "application/pdf")}
+    data = {"id_strategy": "uuid"}
+    r = await client.post(
+        f"/api/orchestration/datasets/{dataset_id}/versions",
+        files=files, data=data,
+    )
+    assert r.status_code == 400, r.text
+    assert "not supported" in r.json()["detail"]

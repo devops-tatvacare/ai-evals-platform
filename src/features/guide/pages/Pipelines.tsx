@@ -8,7 +8,7 @@ import {
 import { usePageExport } from "@/features/guide/hooks/usePageExport";
 
 const pipelineOptions = [
-  { id: "frontend", label: "Frontend LLM Pipeline" },
+  { id: "assist", label: "Server-Side LLM Assist" },
   { id: "backend", label: "Backend Job Pipeline" },
   { id: "voicerx", label: "Voice RX Two-Call" },
   { id: "batch", label: "Batch Pipeline" },
@@ -16,26 +16,33 @@ const pipelineOptions = [
   { id: "report", label: "Report Generation" },
 ];
 
-const frontendDiagram = `flowchart LR
-    A["1. Validate"] -->|"Check API key, model"| B["2. Prepare"]
-    B -->|"Build prompt, attach schema"| C["3. Execute"]
-    C -->|"Call Gemini/OpenAI API"| D["4. Post-process"]
-    D -->|"Parse JSON, validate schema"| E["Result"]
+const assistDiagram = `flowchart LR
+    UI["LLMConfigSection picks provider + model"] --> Req["POST /api/llm/assist/*"]
+    Req --> Route["routes/llm_assist.py"]
+    Route -->|"resolve_llm_credentials"| Resolver["llm_credentials.resolver"]
+    Resolver -->|"Fernet-decrypted ResolvedCredentials"| Service["llm_assist_service.py"]
+    Service -->|"create_llm_provider + LoggingLLMWrapper"| LLM["Provider SDK call"]
+    LLM --> Result["JSON / text response"]
+    Result --> Browser["Browser"]
 
-    style A fill:#6366f1,color:#fff
-    style B fill:#8b5cf6,color:#fff
-    style C fill:#a78bfa,color:#fff
-    style D fill:#c4b5fd,color:#000
-    style E fill:#10b981,color:#fff`;
+    style UI fill:#6366f1,color:#fff
+    style Resolver fill:#8b5cf6,color:#fff
+    style Service fill:#a78bfa,color:#fff
+    style LLM fill:#c4b5fd,color:#000
+    style Browser fill:#10b981,color:#fff`;
 
-const frontendCode = `// src/services/llm/pipeline/index.ts
-export function createLLMPipeline(): LLMInvocationPipeline {
-  // Hardcoded to gemini-2.0-flash — used only for Settings
-  // AI-assist tools (prompt/schema generators), not evaluations.
-  const { geminiApiKey } = useLLMSettingsStore.getState();
-  if (!geminiApiKey) throw new Error('Gemini API key required');
-  return new LLMInvocationPipeline(geminiApiKey, 'gemini-2.0-flash');
-}`;
+const assistCode = `// src/services/api/llmAssistApi.ts (Phase 3 BYOK)
+import { apiRequest } from '@/services/api/client';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
+
+export const llmAssistApi = {
+  generatePrompt: (body: { provider: LLMProvider; model: string; promptType: string; userIdea: string }) =>
+    apiRequest('/api/llm/assist/generate-prompt', { method: 'POST', body: JSON.stringify(body) }),
+  generateSchema: (body: { provider: LLMProvider; model: string; promptType: string; userIdea: string }) =>
+    apiRequest('/api/llm/assist/generate-schema', { method: 'POST', body: JSON.stringify(body) }),
+  extractStructured: (body: { provider: LLMProvider; model: string; /* ... */ }) =>
+    apiRequest('/api/llm/assist/extract-structured', { method: 'POST', body: JSON.stringify(body) }),
+};`;
 
 const backendDiagram = `flowchart TD
     Click["User clicks 'Run'"] -->|"POST /api/jobs"| Create["Create Job (status: queued)"]
@@ -76,7 +83,7 @@ const backendCode = `# job_worker.py — Handler registry (7 job types)
 
 const voicerxDiagram = `flowchart TD
     Start["run_voice_rx_evaluation()"] --> Load["Load Listing + Audio from DB"]
-    Load --> Settings["get_llm_settings_from_db()"]
+    Load --> Settings["resolve_llm_credentials(tenant_id, provider)"]
     Settings --> Provider["create_llm_provider() + LoggingLLMWrapper"]
     Provider --> Check{"skip_transcription?"}
 
@@ -140,7 +147,7 @@ const adversarialDiagram = `flowchart TD
     style Summary fill:#10b981,color:#fff`;
 
 const reportDiagram = `flowchart TD
-    Start["generate-report / generate-cross-run-report"] --> Settings["get_llm_settings_from_db()"]
+    Start["generate-report / generate-cross-run-report"] --> Settings["resolve_llm_credentials(tenant_id, provider)"]
     Settings --> Check{"Scope?"}
     Check -->|"single_run"| Agg["aggregator.py: collect run data"]
     Check -->|"cross_run"| CrossAgg["cross_run_aggregator.py: merge multiple runs"]
@@ -163,12 +170,12 @@ interface PipelineView {
 }
 
 const pipelines: Record<string, PipelineView> = {
-  frontend: {
-    title: "Frontend LLM Pipeline",
+  assist: {
+    title: "Server-Side LLM Assist",
     subtitle:
-      "Used for real-time AI features in the browser. 4-stage pipeline in LLMInvocationPipeline.ts.",
-    diagram: frontendDiagram,
-    code: { code: frontendCode, language: "typescript" },
+      "Phase 3 BYOK: prompt / schema / structured-extraction calls now run on the backend. The browser only picks the provider + model and never sees an API key.",
+    diagram: assistDiagram,
+    code: { code: assistCode, language: "typescript" },
   },
   backend: {
     title: "Backend Job Pipeline",
@@ -200,7 +207,7 @@ const pipelines: Record<string, PipelineView> = {
 };
 
 export default function Pipelines() {
-  const [active, setActive] = useState("frontend");
+  const [active, setActive] = useState("assist");
   const { contentRef } = usePageExport();
   const current = pipelines[active];
 

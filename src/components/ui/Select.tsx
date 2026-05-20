@@ -1,11 +1,13 @@
-import { useMemo, useRef, useCallback } from 'react';
+import { useMemo, useCallback, type ReactNode } from 'react';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown } from 'lucide-react';
 import { cn } from '@/utils';
+import { fromRadixValue, selectRootValue, toRadixValue } from './selectValue';
 
 export interface SelectOption {
   value: string;
   label: string;
+  leading?: ReactNode;
 }
 
 interface SelectProps {
@@ -16,6 +18,10 @@ interface SelectProps {
   className?: string;
   disabled?: boolean;
   size?: 'sm' | 'md';
+  /** Forwarded to Radix `<Select.Content side>` — pick `'top'` when the
+   *  trigger lives near the bottom of its container (modal footers, peek
+   *  panes) so the menu opens upward instead of clipping. */
+  side?: 'top' | 'bottom';
 }
 
 export function Select({
@@ -26,25 +32,29 @@ export function Select({
   className,
   disabled = false,
   size = 'md',
+  side = 'bottom',
 }: SelectProps) {
   const selectedOption = useMemo(
     () => options.find((o) => o.value === value),
     [options, value],
   );
 
-  // Guard against Radix firing onValueChange during render (causes React error #185)
-  const lastValue = useRef(value);
-  lastValue.current = value;
+  const hasEmptyOption = useMemo(
+    () => options.some((o) => o.value === ''),
+    [options],
+  );
+
   const handleChange = useCallback(
     (next: string) => {
-      if (next !== lastValue.current) onChange(next);
+      const mapped = fromRadixValue(next);
+      if (mapped !== value) onChange(mapped);
     },
-    [onChange],
+    [onChange, value],
   );
 
   return (
     <SelectPrimitive.Root
-      value={value || undefined}
+      value={selectRootValue(value, hasEmptyOption)}
       onValueChange={handleChange}
       disabled={disabled}
     >
@@ -71,6 +81,7 @@ export function Select({
       <SelectPrimitive.Portal>
         <SelectPrimitive.Content
           position="popper"
+          side={side}
           sideOffset={4}
           className={cn(
             'z-[var(--z-popover)] overflow-hidden rounded-[var(--radius-default)] border border-[var(--border-default)] bg-[var(--bg-primary)] py-1 shadow-lg',
@@ -80,8 +91,9 @@ export function Select({
           <SelectPrimitive.Viewport>
             {options.map((option) => (
               <SelectPrimitive.Item
-                key={option.value}
-                value={option.value}
+                key={toRadixValue(option.value)}
+                value={toRadixValue(option.value)}
+                textValue={option.label}
                 className={cn(
                   'relative flex w-full cursor-default items-center justify-between gap-3 px-3 py-2 text-[13px] outline-none transition-colors',
                   'text-[var(--text-primary)] hover:bg-[var(--bg-hover)] focus:bg-[var(--bg-hover)]',
@@ -89,7 +101,10 @@ export function Select({
                 )}
               >
                 <SelectPrimitive.ItemText>
-                  <span className="truncate">{option.label}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    {option.leading}
+                    <span className="truncate">{option.label}</span>
+                  </span>
                 </SelectPrimitive.ItemText>
                 <SelectPrimitive.ItemIndicator>
                   <span className="flex h-4 w-4 shrink-0 items-center justify-center">

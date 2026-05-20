@@ -1,0 +1,16 @@
+{% extends "_base.txt.j2" %}
+{% block content %}
+A scheduled job has failed
+
+The scheduled job "{{ job_name }}" failed at {{ failed_at_display }}. The error is shown below — open the run history for the full log.
+
+Error:
+{{ error_summary }}
+
+Open run history:
+{{ job_url }}
+
+Job: {{ job_name }}
+Run: {{ run_id }}
+Failed at: {{ failed_at_display }}
+{% endblock %}

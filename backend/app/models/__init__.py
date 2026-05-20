@@ -29,6 +29,7 @@ from app.models.report_artifact import ReportGeneratedArtifact
 from app.models.invite_link import IdentityInviteLink
 from app.models.invite_link_use import IdentityInviteLinkUse
 from app.models.tenant_config import TenantConfiguration
+from app.models.comm_cap_policy import CommCapPolicy
 from app.models.source_records import CrmCallRecord, CrmLeadRecord, LogCrmSourceSync
 from app.models.application_external_agent_connector import ApplicationExternalAgentConnector
 from app.models.scheduled_job import ScheduledJobDefinition
@@ -41,7 +42,7 @@ from app.models.analytics_lead_facts import (
     FactLeadSignal,
     FactLeadStageTransition,
 )
-from app.models.analytics_log import LogFactPopulationRun, LogSherlockToolCall, CacheSqlQuery
+from app.models.analytics_log import LogFactPopulationRun, CacheSqlQuery
 from app.models.analytics_mapping_state import MappingState
 from app.models.analytics_signal_definition import SignalDefinition
 from app.models.analytics_chart import AnalyticsChart
@@ -50,8 +51,8 @@ from app.models.sherlock_runtime import (
     SherlockAgentSession,
     SherlockConversationTurn,
     SherlockEvidence,
+    SherlockPart,
     SherlockState,
-    SherlockTurnEvent,
 )
 from app.models.sherlock_ontology import (
     SherlockOntologyClass,
@@ -75,18 +76,26 @@ from app.models.orchestration import (
     WorkflowActionTemplate,
     WorkflowConsentRecord,
     WorkflowRun,
+    WorkflowRunCancelAudit,
     WorkflowRunNodeStep,
     WorkflowRunRecipientState,
     WorkflowRunRecipientAction,
     WorkflowRunRecipientOverride,
 )
 from app.models.provider_connection import ProviderConnection
+from app.models.tenant_llm_credential import TenantLlmCredential
+from app.models.tenant_llm_deployment import TenantLlmDeployment
+from app.models.tenant_curated_model import TenantCuratedModel
+from app.models.tenant_call_site_default import TenantCallSiteDefault
+from app.models.mail_send_log import MailSendLog
+from app.models.notification_subscription import NotificationSubscription
 
 __all__ = [
     "Base",
     "Tenant", "TenantConfiguration", "User", "IdentityRefreshToken", "IdentityInviteLink", "IdentityInviteLinkUse",
     "Application", "AccessRole", "AccessRoleApplicationGrant", "AccessRolePermission", "AuditEventLog",
     "EvaluationDataset", "ApplicationUploadedFile", "LibraryPromptDefinition", "LibraryOutputSchemaDefinition", "Evaluator",
+    "MailSendLog", "NotificationSubscription",
     "ChatSession", "ChatMessage", "ApplicationEventHistory", "ApplicationSetting", "LibraryAdversarialTestCase", "ApplicationTag",
     "BackgroundJob",
     "EvaluationRun", "EvaluationRunThreadResult", "EvaluationRunAdversarialResult",
@@ -98,18 +107,22 @@ __all__ = [
     "EvaluationTemplate",
     "AggEvaluationRun", "FactEvaluation", "FactEvaluationCriterion",
     "DimLead", "FactLeadStageTransition", "FactLeadActivity", "FactLeadSignal",
-    "LogFactPopulationRun", "LogSherlockToolCall", "CacheSqlQuery",
+    "LogFactPopulationRun", "CacheSqlQuery",
     "MappingState",
     "SignalDefinition",
     "AnalyticsChart", "AnalyticsDashboard",
-    "SherlockAgentSession", "SherlockTurnEvent", "SherlockConversationTurn",
+    "SherlockAgentSession", "SherlockPart", "SherlockConversationTurn",
     "SherlockState", "SherlockEvidence",
     "SherlockOntologyClass", "SherlockOntologyEntityType", "SherlockEntityResolver",
     "FactLlmGeneration", "RefLlmModelPricing", "RefLlmModelAlias", "AggLlmUsageDaily",
     "RefLlmModelsCatalog", "SnapshotLlmModelsCatalog",
     "Workflow", "WorkflowVersion", "WorkflowTrigger", "WorkflowActionTemplate",
-    "WorkflowConsentRecord", "WorkflowRun", "WorkflowRunNodeStep",
+    "WorkflowConsentRecord", "WorkflowRun", "WorkflowRunCancelAudit", "WorkflowRunNodeStep",
     "WorkflowRunRecipientState", "WorkflowRunRecipientAction", "WorkflowRunRecipientOverride",
     "ProviderConnection",
+    "TenantLlmCredential",
+    "TenantLlmDeployment",
+    "TenantCuratedModel",
+    "TenantCallSiteDefault",
     "LogClinicalActionOutbox",
 ]

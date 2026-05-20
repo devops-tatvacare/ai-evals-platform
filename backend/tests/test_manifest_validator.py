@@ -22,7 +22,7 @@ from app.services.chat_engine.manifest_validator import (
 @pytest.fixture
 def engine_url() -> str:
     """Resolve a DB URL that works both inside docker (evals-postgres:5432) and
-    from the host (localhost:5433 — the port mapped by docker-compose).
+    from the host (localhost:5432 — the port mapped by docker-compose).
     """
     import os
     override = os.environ.get("TEST_DATABASE_URL")
@@ -31,10 +31,8 @@ def engine_url() -> str:
     url = settings.DATABASE_URL
     if "+asyncpg" not in url:
         url = url.replace("postgresql://", "postgresql+asyncpg://")
-    # When running from the host, settings default points to localhost:5432 which
-    # isn't exposed; the host-side mapping is 5433.
-    url = url.replace("@localhost:5432/", "@localhost:5433/")
-    url = url.replace("@evals-postgres:5432/", "@localhost:5433/")
+    # The in-container hostname isn't resolvable from the host; map it to localhost.
+    url = url.replace("@evals-postgres:5432/", "@localhost:5432/")
     return url
 
 
@@ -54,6 +52,7 @@ async def test_validator_rejects_missing_column(db):
         catalog_tables={
             "agg_evaluation_run": CatalogTable(
                 orm="AggEvaluationRun",
+                pg_schema="analytics",
                 columns={
                     "does_not_exist_column": ManifestColumn(role="measure"),
                 },

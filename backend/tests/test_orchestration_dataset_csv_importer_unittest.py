@@ -1,13 +1,10 @@
-import io
 import pytest
-from app.services.orchestration.datasets.csv_importer import (
-    CsvImportError,
-    parse_csv,
-)
+from app.services.orchestration.datasets.csv_importer import parse_csv
+from app.services.orchestration.datasets.dataset_validator import DatasetImportError
 
 
-def _csv(text):
-    return io.StringIO(text)
+def _csv(text: str) -> bytes:
+    return text.encode("utf-8")
 
 
 def test_parse_with_column_strategy():
@@ -28,7 +25,7 @@ def test_parse_with_uuid_strategy_generates_unique_ids():
 
 
 def test_duplicate_recipient_id_rejected():
-    with pytest.raises(CsvImportError, match="duplicates an earlier row"):
+    with pytest.raises(DatasetImportError, match="duplicates an earlier row"):
         parse_csv(
             _csv("phone\n+91111\n+91111\n"),
             id_strategy="column",
@@ -37,7 +34,7 @@ def test_duplicate_recipient_id_rejected():
 
 
 def test_empty_recipient_id_rejected():
-    with pytest.raises(CsvImportError, match="empty"):
+    with pytest.raises(DatasetImportError, match="empty"):
         parse_csv(
             _csv("phone,name\n,Alice\n"),
             id_strategy="column",
@@ -46,7 +43,7 @@ def test_empty_recipient_id_rejected():
 
 
 def test_unknown_id_column_rejected():
-    with pytest.raises(CsvImportError, match="not present in CSV header"):
+    with pytest.raises(DatasetImportError, match="not present in file header"):
         parse_csv(
             _csv("name\nAlice\n"),
             id_strategy="column",
@@ -55,20 +52,27 @@ def test_unknown_id_column_rejected():
 
 
 def test_duplicate_headers_rejected():
-    with pytest.raises(CsvImportError, match="duplicate column names"):
+    with pytest.raises(DatasetImportError, match="duplicate column names"):
         parse_csv(_csv("a,a\n1,2\n"), id_strategy="uuid", id_column=None)
 
 
 def test_row_cap_enforced():
     body = "phone\n" + "\n".join(f"+91{i:06d}" for i in range(20_001)) + "\n"
-    with pytest.raises(CsvImportError, match="row cap"):
+    with pytest.raises(DatasetImportError, match="row cap"):
         parse_csv(_csv(body), id_strategy="column", id_column="phone")
+
+
+def test_non_utf8_rejected():
+    with pytest.raises(DatasetImportError, match="UTF-8"):
+        parse_csv(b"\xff\xfephone\n", id_strategy="uuid", id_column=None)
 
 
 def test_type_inference():
     out = parse_csv(
-        _csv("score,active,name,when\n10,true,Alice,2026-01-01T00:00:00Z\n"
-             "20,false,Bob,2026-02-01T00:00:00Z\n"),
+        _csv(
+            "score,active,name,when\n10,true,Alice,2026-01-01T00:00:00Z\n"
+            "20,false,Bob,2026-02-01T00:00:00Z\n"
+        ),
         id_strategy="uuid", id_column=None,
     )
     by_name = {c["name"]: c["type"] for c in out.schema_descriptor["columns"]}

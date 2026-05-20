@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { Eye, EyeOff, RotateCcw, Wand2, Upload } from 'lucide-react';
-import { Input, Button, Select } from '@/components/ui';
+import { Input, Button, Select, Switch } from '@/components/ui';
+import { cn } from '@/utils';
 import { PromptGeneratorModal } from './PromptGeneratorModal';
 import type { SettingDefinition } from '@/types';
 
@@ -11,9 +12,12 @@ interface SettingsPanelProps {
   values: Record<string, unknown>;
   onChange: (key: string, value: unknown) => void;
   onReset?: (key: string) => void;
+  /** `'inline'` lays each row out as label-left / control-right for a tighter,
+   *  wizard-consistent footprint. Defaults to the stacked layout. */
+  layout?: 'stacked' | 'inline';
 }
 
-export function SettingsPanel({ settings, values, onChange, onReset }: SettingsPanelProps) {
+export function SettingsPanel({ settings, values, onChange, onReset, layout = 'stacked' }: SettingsPanelProps) {
   const [showPasswords, setShowPasswords] = useState<Record<string, boolean>>({});
   const [generatorModal, setGeneratorModal] = useState<{
     isOpen: boolean;
@@ -145,17 +149,12 @@ export function SettingsPanel({ settings, values, onChange, onReset }: SettingsP
 
       case 'toggle':
         return (
-          <button
-            type="button"
-            onClick={() => onChange(setting.key, !value)}
-            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)] ${value ? 'bg-[var(--color-brand-primary)]' : 'bg-[var(--color-neutral-300)]'
-              }`}
-          >
-            <span
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-[var(--color-neutral-0)] shadow ring-0 transition duration-200 ease-in-out ${value ? 'translate-x-5' : 'translate-x-0'
-                }`}
-            />
-          </button>
+          <Switch
+            size="sm"
+            checked={Boolean(value)}
+            onCheckedChange={(next) => onChange(setting.key, next)}
+            aria-label={setting.label}
+          />
         );
 
       case 'textarea': {
@@ -242,10 +241,58 @@ export function SettingsPanel({ settings, values, onChange, onReset }: SettingsP
     }
   };
 
+  const visible = settings.filter(shouldShowSetting);
+
+  if (layout === 'inline') {
+    return (
+      <>
+        <div className="flex flex-col">
+          {visible.map((setting) => {
+            // Textareas and file pickers need full width, so they keep the
+            // stacked treatment even inside an inline panel.
+            const wide = setting.type === 'textarea' || setting.type === 'file';
+            const isToggle = setting.type === 'toggle';
+            return (
+              <div
+                key={setting.key}
+                className={cn(
+                  'border-b border-[var(--border-subtle)] py-3.5 last:border-0',
+                  wide ? 'flex flex-col gap-2' : 'flex items-center justify-between gap-6',
+                )}
+              >
+                <div className="min-w-0">
+                  <label className="block text-[13px] font-medium text-[var(--text-primary)]">
+                    {setting.label}
+                    {setting.validation?.required && <span className="text-[var(--color-error)]"> *</span>}
+                  </label>
+                  {setting.description && (
+                    <p className="mt-0.5 text-[12px] text-[var(--text-muted)]">{setting.description}</p>
+                  )}
+                </div>
+                <div className={cn(wide ? 'w-full' : 'shrink-0', !isToggle && !wide && 'w-[280px]')}>
+                  {renderSetting(setting)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {generatorModal && (
+          <PromptGeneratorModal
+            isOpen={generatorModal.isOpen}
+            onClose={handleCloseGenerator}
+            promptType={generatorModal.promptType}
+            onGenerated={handleGeneratedPrompt}
+          />
+        )}
+      </>
+    );
+  }
+
   return (
     <>
       <div className="space-y-6">
-        {settings.filter(shouldShowSetting).map((setting) => (
+        {visible.map((setting) => (
           <div key={setting.key}>
             <label className="mb-1.5 block text-[13px] font-medium text-[var(--text-primary)]">
               {setting.label}

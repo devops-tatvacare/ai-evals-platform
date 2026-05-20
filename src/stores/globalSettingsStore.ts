@@ -2,7 +2,7 @@
  * Global Settings Store
  * Frontend-only settings shared across all apps: theme and timeouts.
  *
- * LLM credentials (API key, model) are in useLLMSettingsStore (backend-persisted).
+ * LLM credentials are admin-managed via /admin/ai-settings (Phase 2 BYOK).
  * App-specific API credentials are in useAppSettingsStore (backend-persisted).
  */
 

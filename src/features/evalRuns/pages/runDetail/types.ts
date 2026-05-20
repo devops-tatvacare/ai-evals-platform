@@ -50,12 +50,3 @@ export type RunDetailView =
       dialogs?: ReactNode;
     };
 
-/**
- * Per-app run-detail entry. Registered in `runDetailRegistry`. The app owns its
- * data fetching, polling, handlers, header and body — but never the page shell
- * or the layout/scroll wiring.
- */
-export interface RunDetailAppEntry {
-  /** App-owned hook: data fetching, polling, handlers, and the assembled view. */
-  useRunDetail: (runId: string, callId: string | undefined) => RunDetailView;
-}

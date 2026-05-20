@@ -20,6 +20,7 @@ from .aggregator import AdversarialAggregator, ReportAggregator
 from .asset_resolver import resolve_report_assets
 from .base_report_service import BaseReportService
 from .canonical_adapters import adapt_kaira_run_report
+from .contracts.data_quality import DataQualityReport
 from .contracts.run_report import PlatformRunReportPayload
 from .custom_evaluations.aggregator import CustomEvaluationsAggregator
 from .custom_evaluations.narrator import CustomEvalNarrator
@@ -62,11 +63,22 @@ class ReportService(BaseReportService):
         summary = run.summary or {}
         is_adversarial = run.eval_type == "batch_adversarial"
 
+        # Phase 2 — missing-input markers for the health-score path. Each entry
+        # corresponds to a downstream blank-card class; the finalizer in
+        # _compose_single_run_payload propagates these into payload.data_quality.
+        missing_inputs: list[str] = []
+
         # Health score — different dimensions for adversarial
         if is_adversarial:
             health_score = compute_adversarial_health_score(adversarial, summary)
             agg = AdversarialAggregator(adversarial, summary)
         else:
+            if summary.get("avg_intent_accuracy") is None:
+                missing_inputs.append("summary.avg_intent_accuracy")
+            if not summary.get("correctness_verdicts"):
+                missing_inputs.append("summary.correctness_verdicts")
+            if not summary.get("efficiency_verdicts"):
+                missing_inputs.append("summary.efficiency_verdicts")
             health_score = compute_health_score(
                 avg_intent_accuracy=summary.get("avg_intent_accuracy"),
                 correctness_verdicts=summary.get("correctness_verdicts", {}),
@@ -163,7 +175,12 @@ class ReportService(BaseReportService):
             narrative=narrative,
             custom_evaluations_report=custom_eval_report,
         )
-        return adapt_kaira_run_report(payload, analytics_config)
+        adapted = adapt_kaira_run_report(payload, analytics_config)
+        if missing_inputs:
+            adapted = adapted.model_copy(
+                update={'data_quality': DataQualityReport(missing_inputs=missing_inputs)},
+            )
+        return adapted
 
     # --- AI Narrative ---
 

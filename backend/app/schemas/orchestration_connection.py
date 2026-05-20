@@ -107,63 +107,8 @@ class ProviderSpecResponse(CamelModel):
     fields: list[ConnectionFieldDescriptor]
 
 
-class ProviderAgentSummary(CamelModel):
-    """One row in ``ProviderAgentsListResponse.items``. Provider-agnostic
-    surface so a future WATI templates response can reuse the same shape."""
-    id: str
-    name: str
-    status: str
-    type: str
-
-
-class ProviderAgentsListResponse(CamelModel):
-    """Returned by GET /api/orchestration/connections/{id}/agents.
-
-    Soft-error contract: ``error`` carries an inline message when the
-    upstream provider couldn't be queried; ``items`` is empty in that
-    case but the HTTP status stays 200 so the picker doesn't blow up
-    the form.
-    """
-    provider: str
-    items: list[ProviderAgentSummary]
-    error: Optional[str] = None
-
-
-class ProviderTemplateSummary(CamelModel):
-    """Phase 13/C.1 — one row in the WATI templates list. ``parameters``
-    carries the ordered placeholder names the variable-mapping editor
-    consumes; empty list when the upstream payload didn't expose any."""
-    name: str
-    language: str = ""
-    status: str = ""
-    parameters: list[str] = []
-
-
-class ProviderTemplatesListResponse(CamelModel):
-    """Returned by GET /api/orchestration/connections/{id}/templates.
-
-    Same soft-error envelope as ``ProviderAgentsListResponse`` so the
-    WATI picker can keep rendering with manual entry on upstream
-    failure.
-    """
-    provider: str
-    items: list[ProviderTemplateSummary]
-    error: Optional[str] = None
-
-
 class AgentVariablesResponse(CamelModel):
-    """Returned by GET /api/orchestration/connections/{id}/agent-variables.
-
-    Provider-aware introspection surface for variable-mapping UIs.
-    The caller passes the runtime-selected provider entity:
-    `agentId` for Bolna, `templateName` for WATI. No seeded-template fallback.
-
-    ``error`` carries a soft, user-facing string when the upstream provider
-    couldn't be queried (e.g. 404 because the agent id doesn't exist under
-    this account, or a transient transport error). The endpoint stays at
-    HTTP 200 so the picker keeps working — the user can still type variable
-    names manually — but the UI surfaces the message inline.
-    """
+    """Variable-introspection envelope — empty list until adapters re-register in P2/P3."""
     provider: str
     variables: list[str]
     error: Optional[str] = None

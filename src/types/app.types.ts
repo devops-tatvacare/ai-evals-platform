@@ -57,6 +57,10 @@ export interface AppFeaturesConfig {
    *  render. Per-app capability; the backend orchestration engine still
    *  gates execution by `ORCHESTRATION_DEFAULT_APP_ID`. */
   hasOrchestration: boolean;
+  /** Surfaces the user-level Notifications tab on the app settings page.
+   *  Per-app capability; the notification pipeline still gates sends by
+   *  subscription + admin defaults. */
+  hasNotifications: boolean;
 }
 
 export interface AppReviewsConfig {
@@ -84,7 +88,6 @@ export interface AppAssetDefaults {
   prompt: 'private' | 'shared';
   schema: 'private' | 'shared';
   adversarialContract: 'private' | 'shared';
-  llmSettings: 'private' | 'shared';
 }
 
 export interface AppAssetPolicyConfig {
@@ -125,7 +128,7 @@ export interface AppNavigationConfig {
   reportWizardPath: string | null;
 }
 
-export type AppActionRequirementSource = 'appSettings' | 'globalSettings' | 'llmSettings';
+export type AppActionRequirementSource = 'appSettings' | 'globalSettings' | 'tenantProviders';
 export type AppActionRequirementValidation = 'nonEmpty' | 'truthy';
 
 export interface AppActionRequirementConfig {
@@ -244,8 +247,6 @@ export interface AnalyticsSummaryConfig {
 
 export interface AnalyticsCapabilities {
   singleRunReport: boolean;
-  crossRunAnalytics: boolean;
-  crossRunAiSummary: boolean;
   pdfExport: boolean;
 }
 
@@ -308,7 +309,6 @@ export type PageType =
   | 'evaluators'
   | 'evaluatorDetail'
   | 'logs'
-  | 'dashboard'
   | 'analytics'
   | 'analyticsChart'
   | 'analyticsDashboard'
@@ -326,6 +326,7 @@ export type PageType =
   | 'connections'
   | 'datasets'
   | 'datasetDetail'
+  | 'cohorts'
   | 'chat';
 
 export interface PageActionSpec {
@@ -384,6 +385,47 @@ export interface EvaluatorDetailConfig {
   interpretationBands: EvaluatorDetailBand[];
 }
 
+export interface AppRunDetailReportTabConfig {
+  enabled: boolean;
+  /** Restrict the Report tab to a subset of `evalTypes`; omit = all. */
+  enabledForEvalTypes?: string[];
+}
+
+export interface AppRunDetailDrilldownConfig {
+  paramName: string;
+  route: string;
+  backLabel: string;
+}
+
+export interface AppRunDetailExtrasConfig {
+  review?: boolean;
+  adversarialAxes?: boolean;
+  rawPayload?: boolean;
+  historyTab?: boolean;
+  drilldown?: AppRunDetailDrilldownConfig;
+}
+
+export interface AppRunDetailBehaviourConfig {
+  hideTabsWhileActive?: boolean;
+  bannerOnlyOnFailed?: boolean;
+  failureHeadlineFromResult?: boolean;
+}
+
+/** Run shape selects the dispatcher path inside `useRunDetail`.
+ *  - `single` — one `EvalRun` row, optional call drilldown (voice-rx, inside-sales).
+ *  - `batch`  — one `Run` row with thread + adversarial sub-rows (kaira). */
+export type RunShape = 'single' | 'batch';
+
+export interface AppRunDetailConfig {
+  /** Dispatches which run-detail hook drives the surface. */
+  runShape: RunShape;
+  /** Eval types this app produces. Drives the result-renderer registry lookup. */
+  evalTypes: string[];
+  reportTab: AppRunDetailReportTabConfig;
+  extras: AppRunDetailExtrasConfig;
+  behaviour: AppRunDetailBehaviourConfig;
+}
+
 export interface AppConfig {
   displayName: string;
   icon: string;
@@ -411,6 +453,10 @@ export interface AppConfig {
   quickActions?: QuickActionSpec[];
   /** Per-app copy/labels for the shared evaluator-detail page. Missing = neutral default. */
   evaluatorDetail?: EvaluatorDetailConfig;
+  /** Per-app run-detail surface config. Drives result-renderer dispatch, report-tab
+   *  gating, drilldown sub-route, and chrome behaviour flags. Required after Phase 3
+   *  for any app that mounts the run-detail page. */
+  runDetail?: AppRunDetailConfig;
 }
 
 export interface RuleCatalogEntry {
@@ -447,7 +493,7 @@ export const APPS: Record<AppId, AppMetadata> = {
   'inside-sales': {
     id: 'inside-sales',
     name: 'Inside Sales',
-    icon: '/inside-sales-icon.svg',
+    icon: 'headset',
     description: 'Inside sales call quality evaluation',
     searchPlaceholder: 'Search calls...',
     newItemLabel: 'New Run',
@@ -469,10 +515,7 @@ const DEFAULT_APP_AUTHORIZATION_CONFIG: AppAuthorizationConfig = {
     evaluator: DEFAULT_ASSET_POLICY_CONFIG,
     prompt: DEFAULT_ASSET_POLICY_CONFIG,
     schema: DEFAULT_ASSET_POLICY_CONFIG,
-    settings: {
-      ...DEFAULT_ASSET_POLICY_CONFIG,
-      privateOnlyKeys: ['llm-settings'],
-    },
+    settings: DEFAULT_ASSET_POLICY_CONFIG,
   },
 };
 
@@ -502,6 +545,7 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       hasHumanReview: false,
       hasReviews: true,
       hasOrchestration: false,
+      hasNotifications: false,
     },
     reviews: {
       enabled: true,
@@ -528,7 +572,6 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       prompt: 'private',
       schema: 'private',
       adversarialContract: 'private',
-      llmSettings: 'private',
     },
     authorization: DEFAULT_APP_AUTHORIZATION_CONFIG,
     evalRun: {
@@ -536,7 +579,7 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
     },
     navigation: {
       homePath: '/',
-      ownedPathPrefixes: ['/dashboard', '/listing', '/runs', '/logs', '/settings', '/evaluators'],
+      ownedPathPrefixes: ['/listing', '/runs', '/logs', '/settings', '/evaluators'],
       settingsPath: '/settings',
       logsPath: '/logs',
       runsPath: '/runs',
@@ -554,8 +597,6 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       profile: 'voice_rx_v1',
       capabilities: {
         singleRunReport: true,
-        crossRunAnalytics: true,
-        crossRunAiSummary: true,
         pdfExport: true,
       },
       singleRun: {
@@ -634,6 +675,13 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       },
     ],
     evaluatorDetail: { interpretationBands: [] },
+    runDetail: {
+      runShape: 'single',
+      evalTypes: ['full_evaluation', 'custom'],
+      reportTab: { enabled: true, enabledForEvalTypes: ['full_evaluation'] },
+      extras: { rawPayload: true },
+      behaviour: { failureHeadlineFromResult: true },
+    },
   },
   'kaira-bot': {
     displayName: APPS['kaira-bot'].name,
@@ -649,6 +697,7 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       hasHumanReview: false,
       hasReviews: true,
       hasOrchestration: false,
+      hasNotifications: false,
     },
     reviews: {
       enabled: true,
@@ -675,7 +724,6 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       prompt: 'private',
       schema: 'private',
       adversarialContract: 'shared',
-      llmSettings: 'private',
     },
     authorization: DEFAULT_APP_AUTHORIZATION_CONFIG,
     evalRun: {
@@ -710,8 +758,6 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       profile: 'kaira_v1',
       capabilities: {
         singleRunReport: true,
-        crossRunAnalytics: true,
-        crossRunAiSummary: true,
         pdfExport: true,
       },
       singleRun: {
@@ -790,6 +836,13 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       },
     ],
     evaluatorDetail: { interpretationBands: [] },
+    runDetail: {
+      runShape: 'batch',
+      evalTypes: ['batch_thread', 'batch_adversarial'],
+      reportTab: { enabled: true },
+      extras: { review: true, adversarialAxes: true, historyTab: true },
+      behaviour: { hideTabsWhileActive: true },
+    },
   },
   'inside-sales': {
     displayName: APPS['inside-sales'].name,
@@ -805,6 +858,7 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       hasHumanReview: false,
       hasReviews: true,
       hasOrchestration: true,
+      hasNotifications: true,
     },
     reviews: {
       enabled: true,
@@ -831,7 +885,6 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       prompt: 'private',
       schema: 'private',
       adversarialContract: 'private',
-      llmSettings: 'private',
     },
     authorization: DEFAULT_APP_AUTHORIZATION_CONFIG,
     evalRun: {
@@ -1038,8 +1091,6 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
       profile: 'inside_sales_v1',
       capabilities: {
         singleRunReport: true,
-        crossRunAnalytics: true,
-        crossRunAiSummary: true,
         pdfExport: true,
       },
       singleRun: {
@@ -1109,6 +1160,15 @@ export const APP_CONFIG_FALLBACKS: Record<AppId, AppConfig> = {
         { color: 'amber', label: 'Needs Work', range: '50-64', description: 'Structured coaching required' },
         { color: 'red', label: 'Poor', range: 'Below 50', description: 'Re-training recommended' },
       ],
+    },
+    runDetail: {
+      runShape: 'single',
+      evalTypes: ['call_quality'],
+      reportTab: { enabled: true },
+      extras: {
+        drilldown: { paramName: 'callId', route: 'calls/:callId', backLabel: 'Back to run' },
+      },
+      behaviour: { bannerOnlyOnFailed: true },
     },
   },
 };
@@ -1283,5 +1343,28 @@ export function mergeAppConfig(appId: AppId, config?: Partial<AppConfig> | null)
         ?? fallback.evaluatorDetail?.interpretationBands
         ?? [],
     },
+    runDetail: mergeRunDetailConfig(config.runDetail, fallback.runDetail),
+  };
+}
+
+function mergeRunDetailConfig(
+  override: AppRunDetailConfig | undefined,
+  base: AppRunDetailConfig | undefined,
+): AppRunDetailConfig | undefined {
+  if (!override && !base) return undefined;
+  const fb: AppRunDetailConfig = base ?? {
+    runShape: 'single',
+    evalTypes: [],
+    reportTab: { enabled: false },
+    extras: {},
+    behaviour: {},
+  };
+  if (!override) return fb;
+  return {
+    runShape: override.runShape ?? fb.runShape,
+    evalTypes: override.evalTypes ?? fb.evalTypes,
+    reportTab: { ...fb.reportTab, ...override.reportTab },
+    extras: { ...fb.extras, ...override.extras },
+    behaviour: { ...fb.behaviour, ...override.behaviour },
   };
 }

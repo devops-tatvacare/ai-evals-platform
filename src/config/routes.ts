@@ -20,6 +20,10 @@ export const routes = {
   adminAnalyticsMappings: '/admin/analytics/mappings',
   adminAnalyticsSignals: '/admin/analytics/signals',
   adminIntegrations: '/admin/integrations',
+  adminCommCap: '/admin/orchestration/comm-cap',
+  adminLlmProviders: '/admin/llm/providers',
+  adminLlmDefaults: '/admin/llm/defaults',
+  adminNotifications: '/admin/notifications',
   adminSherlock: '/admin/sherlock',
   adminSherlockToolCall: (toolCallId: string) => `/admin/sherlock/${toolCallId}`,
   adminSherlockConfig: '/admin/sherlock-config',
@@ -29,7 +33,6 @@ export const routes = {
   voiceRx: {
     home: "/",
     listing: (id: string) => `/listing/${id}`,
-    dashboard: "/dashboard",
     evaluators: '/evaluators',
     runs: "/runs",
     runDetail: (runId: string) => `/runs/${runId}`,
@@ -43,7 +46,6 @@ export const routes = {
     home: "/kaira",
     chat: "/kaira/chat",
     chatSession: (chatId: string) => `/kaira/chat/${chatId}`,
-    dashboard: "/kaira/dashboard",
     evaluators: '/kaira/evaluators',
     runs: "/kaira/runs",
     runDetail: (runId: string) => `/kaira/runs/${runId}`,
@@ -72,7 +74,6 @@ export const routes = {
     callDetail: (runId: string, callId: string) => `/inside-sales/runs/${runId}/calls/${callId}`,
     callView: (activityId: string) => `/inside-sales/calls/${activityId}`,
     leadDetail: (leadId: string) => `/inside-sales/leads/${leadId}`,
-    dashboard: '/inside-sales/dashboard',
     logs: '/inside-sales/logs',
     settings: '/inside-sales/settings',
     analytics: '/inside-sales/analytics',
@@ -82,10 +83,20 @@ export const routes = {
     campaignBuilder: (workflowId: string) => `/inside-sales/orchestration/workflows/${workflowId}`,
     campaignRuns: '/inside-sales/orchestration/runs',
     campaignRunDetail: (runId: string) => `/inside-sales/orchestration/runs/${runId}`,
-    datasets: '/inside-sales/orchestration/datasets',
     datasetDetail: (datasetId: string) => `/inside-sales/orchestration/datasets/${datasetId}`,
   },
 };
+
+/**
+ * True when the current pathname is under the admin chrome (`/admin` or any
+ * `/admin/<sub>` route). Admin pages are tenant-scoped operational surfaces
+ * with no per-app context, so cross-app affordances that depend on an active
+ * app (the Sherlock chat widget, app-specific quick actions, etc.) suppress
+ * themselves on these routes.
+ */
+export function isAdminPath(pathname: string): boolean {
+  return pathname === routes.adminRoot || pathname.startsWith(`${routes.adminRoot}/`);
+}
 
 const appNavigationRegistry = new Map<string, AppNavigationConfig>(
   APP_IDS.map((appId) => [appId, APP_CONFIG_FALLBACKS[appId].navigation]),

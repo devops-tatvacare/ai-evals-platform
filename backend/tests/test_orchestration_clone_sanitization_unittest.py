@@ -49,15 +49,15 @@ async def _seed_system_workflow_with_connection(
         "nodes": [
             {
                 "id": "src",
-                "type": "source.cohort_query",
-                "config": {"source_table": "x", "id_column": "id"},
+                "type": "source.event_trigger",
+                "config": {},
             },
             {
                 "id": "bolna",
-                "type": "crm.place_bolna_call",
+                "type": "core.webhook_out",
                 "config": {
-                    "template_slug": "concierge_confirmation",
-                    "phone_field": "phone",
+                    "url": "https://example.com/x",
+                    
                     "connection_id": str(system_connection_id),
                 },
             },
@@ -120,10 +120,10 @@ async def test_clone_strips_system_connection_id_and_returns_draft(
     )
     assert cloned_v is not None
     assert cloned_v.status == "draft"
-    bolna_node = next(
-        n for n in cloned_v.definition["nodes"] if n["type"] == "crm.place_bolna_call"
+    wh_node = next(
+        n for n in cloned_v.definition["nodes"] if n["type"] == "core.webhook_out"
     )
-    assert "connection_id" not in bolna_node["config"]
+    assert "connection_id" not in wh_node["config"]
 
 
 @pytest.mark.asyncio
@@ -171,10 +171,10 @@ async def test_clone_preserves_id_when_tenant_owns_a_match(
         select(WorkflowVersion).where(WorkflowVersion.workflow_id == cloned.id)
     )
     assert cloned_v.status == "published"
-    bolna_node = next(
-        n for n in cloned_v.definition["nodes"] if n["type"] == "crm.place_bolna_call"
+    wh_node = next(
+        n for n in cloned_v.definition["nodes"] if n["type"] == "core.webhook_out"
     )
-    assert bolna_node["config"]["connection_id"] == str(shared_id)
+    assert wh_node["config"]["connection_id"] == str(shared_id)
 
 
 @pytest.mark.asyncio
@@ -188,7 +188,7 @@ async def test_strip_helper_handles_malformed_uuid_value(db_session, seed_tenant
 
     definition = {
         "nodes": [
-            {"id": "x", "type": "crm.send_wati", "config": {"connection_id": "not-a-uuid"}}
+            {"id": "x", "type": "core.webhook_out", "config": {"connection_id": "not-a-uuid"}}
         ],
         "edges": [],
     }

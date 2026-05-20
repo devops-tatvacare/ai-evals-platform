@@ -8,6 +8,8 @@ import {
   ConfirmDialog,
   Tabs,
   TableToolbar,
+  RowActionsMenu,
+  type RowAction,
 } from '@/components/ui';
 import { PAGE_METADATA } from '@/config/pageMetadata';
 import { DataTable, type ColumnDef, type SortState } from '@/components/ui/DataTable';
@@ -54,6 +56,7 @@ function UsersTab() {
   const [sortState, setSortState] = useState<SortState>({ key: 'displayName', order: 'asc' });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const loadUsers = useCallback(async () => {
     try {
@@ -193,36 +196,64 @@ function UsersTab() {
     },
     {
       key: 'actions',
-      header: '',
-      width: 'w-[160px]',
+      header: 'Actions',
+      width: 'w-[88px]',
       cellClassName: 'text-right',
+      headerClassName: 'text-right',
       render: (user) => {
         const isSelf = user.id === currentUser?.id;
+        const actions: RowAction[] = [
+          {
+            id: 'edit',
+            icon: Pencil,
+            label: 'Edit user',
+            hidden: !userHasPermission(currentUser, 'user:edit'),
+            onClick: () => setEditingUser(user),
+          },
+          {
+            id: 'reset',
+            icon: KeyRound,
+            label: 'Reset password',
+            hidden:
+              isSelf ||
+              !user.isActive ||
+              !userHasPermission(currentUser, 'user:reset_password'),
+            onClick: () => setResetPasswordUser(user),
+          },
+          {
+            id: 'deactivate',
+            icon: UserX,
+            label: 'Deactivate user',
+            hidden:
+              !isOwner ||
+              isSelf ||
+              user.isOwner ||
+              !user.isActive ||
+              !userHasPermission(currentUser, 'user:deactivate'),
+            onClick: () => setDeactivatingUser(user),
+          },
+          {
+            id: 'delete',
+            icon: Trash2,
+            label: 'Delete user',
+            danger: true,
+            hidden:
+              isSelf ||
+              user.isOwner ||
+              !userHasPermission(currentUser, 'user:delete'),
+            onClick: () => setDeletingUser(user),
+          },
+        ];
         return (
-          <div className="inline-grid grid-cols-4 gap-1 w-[128px]" onClick={(e) => e.stopPropagation()}>
-            <PermissionGate action="user:edit">
-              <Button variant="secondary" size="sm" icon={Pencil} iconOnly title="Edit user" onClick={() => setEditingUser(user)} />
-            </PermissionGate>
-            {!isSelf && user.isActive ? (
-              <PermissionGate action="user:reset_password">
-                <Button variant="secondary" size="sm" icon={KeyRound} iconOnly title="Reset password" onClick={() => setResetPasswordUser(user)} />
-              </PermissionGate>
-            ) : <span />}
-            {isOwner && !isSelf && !user.isOwner && user.isActive ? (
-              <PermissionGate action="user:deactivate">
-                <Button variant="secondary" size="sm" icon={UserX} iconOnly title="Deactivate user" onClick={() => setDeactivatingUser(user)} />
-              </PermissionGate>
-            ) : <span />}
-            {!isSelf && !user.isOwner ? (
-              <PermissionGate action="user:delete">
-                <Button variant="danger" size="sm" icon={Trash2} iconOnly title="Delete user" onClick={() => setDeletingUser(user)} />
-              </PermissionGate>
-            ) : <span />}
-          </div>
+          <RowActionsMenu
+            actions={actions}
+            open={openMenuId === user.id}
+            onOpenChange={(next) => setOpenMenuId(next ? user.id : null)}
+          />
         );
       },
     },
-  ], [currentUser?.id, isOwner]);
+  ], [currentUser, isOwner, openMenuId]);
 
   if (isLoading) {
     return <LoadingState />;

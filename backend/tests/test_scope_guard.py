@@ -21,7 +21,7 @@ _KAIRA = {
     'is_active': True,
     'config': {
         'displayName': 'Kaira Bot',
-        'chat': {'capabilities': ['analytics', 'report_builder']},
+        'chat': {'capabilities': ['orchestration.authoring']},
     },
 }
 _VOICE = {
@@ -29,7 +29,7 @@ _VOICE = {
     'is_active': True,
     'config': {
         'displayName': 'Voice Rx',
-        'chat': {'capabilities': ['analytics', 'report_builder']},
+        'chat': {'capabilities': ['orchestration.authoring']},
     },
 }
 _INSIDE_SALES = {
@@ -37,7 +37,7 @@ _INSIDE_SALES = {
     'is_active': True,
     'config': {
         'displayName': 'Inside Sales',
-        'chat': {'capabilities': ['analytics', 'report_builder']},
+        'chat': {'capabilities': ['orchestration.authoring']},
     },
 }
 _INACTIVE_APP = {
@@ -45,7 +45,7 @@ _INACTIVE_APP = {
     'is_active': False,
     'config': {
         'displayName': 'Retired',
-        'chat': {'capabilities': ['analytics']},
+        'chat': {'capabilities': ['orchestration.authoring']},
     },
 }
 
@@ -175,7 +175,7 @@ def test_effective_pack_ids_come_from_app_capabilities() -> None:
 
     scope = guard.resolve(auth=auth, requested_app_id='kaira-bot')
 
-    # Pack registration is a module-import side effect; the two packs
-    # declared in App.config.chat.capabilities must resolve.
-    assert 'analytics' in scope.effective_pack_ids
-    assert 'report_builder' in scope.effective_pack_ids
+    # Pack registration is a module-import side effect; only packs
+    # declared in App.config.chat.capabilities must resolve. Analytics
+    # is built into v3 and not surfaced as a pack any more.
+    assert 'orchestration.authoring' in scope.effective_pack_ids

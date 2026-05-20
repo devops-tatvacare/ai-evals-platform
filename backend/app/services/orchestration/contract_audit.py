@@ -49,20 +49,9 @@ from app.services.orchestration.node_registry import (  # noqa: E402
 # Eager-import every node module so ``register_node`` decorators run and
 # the registry is populated. The lifespan does this through
 # ``import app.services.job_worker`` — the audit runs outside that path,
-# so we do it explicitly here. Without this the audit reports every node
-# as "unknown node type" because the registry is empty.
+# so we do it explicitly here.
 from app.services.orchestration.nodes import (  # noqa: E402, F401
-    clinical_assign_care_team_task,
-    clinical_emr_write,
-    clinical_escalation_uptier,
-    clinical_schedule_lab,
-    clinical_send_pro_assessment,
     core_webhook_out,
-    crm_lsq_log_activity,
-    crm_lsq_update_stage,
-    crm_place_bolna_call,
-    crm_send_sms,
-    crm_send_wati,
     filter_consent_gate,
     filter_eligibility,
     logic_conditional,
@@ -70,8 +59,9 @@ from app.services.orchestration.nodes import (  # noqa: E402, F401
     logic_split,
     logic_wait,
     sink_complete,
-    source_cohort_query,
+    source_dataset,
     source_event_trigger,
+    source_saved_cohort,
 )
 
 

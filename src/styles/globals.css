@@ -122,6 +122,7 @@
   --color-provider-openai: #10a37f;
   --color-provider-anthropic: #cc785c;
   --color-provider-azure: #0078d4;
+  --color-provider-bedrock: #ff9900;
 
   /* App category colors (cost dashboard stacked charts, app tags) */
   --color-app-voicerx: #7f56d9;
@@ -217,6 +218,9 @@
   --color-info: #6366F1;
   --color-info-light: #E0E7FF;
   --color-info-dark: #4F46E5;
+  /* Reach-cap skip — an intentional throttle, distinct from warning/error. */
+  --color-status-capped: #7C3AED;
+  --color-status-capped-light: #EDE9FE;
 
   /* Surface tokens for status backgrounds */
   --surface-success: #f0fdf4;
@@ -293,6 +297,23 @@
   --chip-brand-bg: color-mix(in srgb, var(--interactive-primary) 10%, transparent);
   --chip-brand-border: color-mix(in srgb, var(--interactive-primary) 22%, transparent);
   --chip-brand-text: var(--interactive-primary);
+
+  /* Brand gradients — reused by hero CTAs, brand mark, tagline highlight */
+  --gradient-brand-cta: linear-gradient(90deg, var(--color-brand-primary), var(--color-brand-secondary));
+  --gradient-brand-text: linear-gradient(90deg, var(--color-brand-accent) 0%, #8b5cf6 50%, var(--color-brand-accent) 100%);
+  --gradient-brand-mark: linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-secondary));
+  --shadow-brand-cta: 0 6px 18px rgba(112, 48, 160, 0.40), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+
+  /* Login / landing — atmospheric backdrop primitives (dark-only surface in v1) */
+  --login-backdrop-bg: #07070d;
+  --login-aurora-primary: rgba(112, 48, 160, 0.45);
+  --login-aurora-secondary: rgba(64, 60, 207, 0.40);
+  --login-aurora-tertiary: rgba(139, 92, 246, 0.35);
+  --login-grid-line: rgba(255, 255, 255, 0.035);
+  --login-panel-bg: rgba(7, 7, 13, 0.45);
+  --login-input-bg: rgba(255, 255, 255, 0.03);
+  --login-input-border: rgba(255, 255, 255, 0.10);
+  --login-input-focus-ring: rgba(112, 48, 160, 0.18);
 }
 
 [data-theme="dark"] {
@@ -361,7 +382,9 @@
   --color-info: #818CF8;
   --color-info-light: rgba(99, 102, 241, 0.2);
   --color-info-dark: #4F46E5;
-  
+  --color-status-capped: #A78BFA;
+  --color-status-capped-light: rgba(139, 92, 246, 0.2);
+
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-default: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.25), 0 2px 4px rgba(0, 0, 0, 0.15);
@@ -423,6 +446,23 @@
   --bg-chat-assistant: var(--color-neutral-800);
   --bg-chat-input: var(--color-neutral-800);
   --border-chat-input: var(--color-neutral-600);
+
+  /* Brand gradients — reused by hero CTAs, brand mark, tagline highlight */
+  --gradient-brand-cta: linear-gradient(90deg, var(--color-brand-primary), var(--color-brand-secondary));
+  --gradient-brand-text: linear-gradient(90deg, var(--color-brand-accent) 0%, #8b5cf6 50%, var(--color-brand-accent) 100%);
+  --gradient-brand-mark: linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-secondary));
+  --shadow-brand-cta: 0 6px 18px rgba(112, 48, 160, 0.40), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+
+  /* Login / landing — atmospheric backdrop primitives */
+  --login-backdrop-bg: #07070d;
+  --login-aurora-primary: rgba(112, 48, 160, 0.45);
+  --login-aurora-secondary: rgba(64, 60, 207, 0.40);
+  --login-aurora-tertiary: rgba(139, 92, 246, 0.35);
+  --login-grid-line: rgba(255, 255, 255, 0.035);
+  --login-panel-bg: rgba(7, 7, 13, 0.45);
+  --login-input-bg: rgba(255, 255, 255, 0.03);
+  --login-input-border: rgba(255, 255, 255, 0.10);
+  --login-input-focus-ring: rgba(112, 48, 160, 0.18);
 }
 
 /* Fonts loaded via @import at top of file */
@@ -515,9 +555,6 @@ html[data-theme-transitioning] * {
   30% { opacity: 1; transform: translateY(-4px); }
 }
 
-/* Dark mode fix for provider SVG icons rendered as <img> that use fill="currentColor" */
-[data-theme="dark"] .provider-icon-invert { filter: invert(1); }
-
 /* Review Universe — border glow breathe */
 .review-border-glow {
   animation: review-glow-breathe 4s ease-in-out infinite;
@@ -553,64 +590,6 @@ html[data-theme-transitioning] * {
   100% {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-/* Phase 2 (sherlock-builder) — rotating conic-gradient border applied to
- * the chat composer while an SSE stream is in flight (AbortController
- * active). `--composer-border-angle` is animated from 0deg → 360deg via
- * `@property` so the gradient rotation is interpolatable. The border
- * itself is rendered as a 1px conic-gradient ring on a `::before` pseudo
- * element, masked so only the ring shows (content stays untouched). */
-@property --composer-border-angle {
-  syntax: "<angle>";
-  initial-value: 0deg;
-  inherits: false;
-}
-
-@keyframes chat-composer-border-rotate {
-  to {
-    --composer-border-angle: 360deg;
-  }
-}
-
-.chat-composer-streaming {
-  position: relative;
-  /* Hide the static border when the rotating ring is on top of it so the
-   * two don't double-stack at the corners. */
-  border-color: transparent !important;
-}
-
-.chat-composer-streaming::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
-  background: conic-gradient(
-    from var(--composer-border-angle),
-    var(--color-brand-primary) 0%,
-    var(--color-brand-accent) 25%,
-    var(--color-brand-primary) 50%,
-    var(--color-brand-accent) 75%,
-    var(--color-brand-primary) 100%
-  );
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  animation: chat-composer-border-rotate 2.4s linear infinite;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .chat-composer-streaming::before {
-    animation: none;
-    background: var(--color-brand-primary);
   }
 }
 

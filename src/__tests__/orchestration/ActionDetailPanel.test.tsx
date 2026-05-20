@@ -8,8 +8,8 @@ function bolnaAction(overrides: Partial<ActionRow> = {}): ActionRow {
   return {
     id: 'a-1',
     recipientId: 'L-1',
-    channel: 'bolna',
-    actionType: 'bolna_queued',
+    channel: 'voice',
+    actionType: 'voice_queued',
     status: 'success',
     idempotencyKey: 'idem-1',
     payload: {},

@@ -22,7 +22,7 @@ describe('canvasPatchSchema', () => {
           op: 'add_node',
           node_id: 'n_source',
           payload: {
-            node_type: 'source.cohort_query',
+            node_type: 'source.dataset',
             config: { dataset_version_id: 'd_1' },
           },
         },

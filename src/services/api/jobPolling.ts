@@ -4,14 +4,13 @@
  */
 import { jobsApi, type Job } from './jobsApi';
 import { ApiError } from './client';
+import { isNetworkError, isServerError } from './errorHandling';
 
 // ── Retry logic for transient errors ────────────────────────────
 
 function isTransientError(error: unknown): boolean {
-  if (error instanceof TypeError && error.message.includes('fetch')) return true;
-  if (error instanceof ApiError && error.status >= 500) return true;
-  if (error instanceof ApiError && error.status === 408) return true;
-  if (error instanceof ApiError && error.status === 429) return true;
+  if (isNetworkError(error) || isServerError(error)) return true;
+  if (error instanceof ApiError && (error.status === 408 || error.status === 429)) return true;
   return false;
 }
 

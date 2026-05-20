@@ -10,14 +10,13 @@ mapped here to stable client-facing HTTP errors:
 - ``DatasetNotFound``  -> 404 ("dataset not found" / "dataset version not found")
 - ``DatasetConflict``  -> 409 (str(exc))
 - ``DatasetInUse``     -> 409 (workflow names listed in detail)
-- ``CsvImportError``   -> 400 (str(exc))
+- ``DatasetImportError`` / ``FormatNotSupportedError`` -> 400 (str(exc))
 
 Tenant-mismatch returns 404, never 403, to avoid leaking row existence across
 tenants.
 """
 from __future__ import annotations
 
-import io
 import uuid
 from typing import Literal, Optional
 
@@ -43,18 +42,20 @@ from app.services.access_control import can_access
 from app.schemas.orchestration_dataset import (
     DatasetCreate,
     DatasetDetailResponse,
+    DatasetFormatResponse,
     DatasetResponse,
     DatasetUpdate,
     DatasetVersionResponse,
 )
 from app.services.orchestration.api import datasets as dataset_service
-from app.services.orchestration.datasets.csv_importer import CsvImportError
+from app.services.orchestration.datasets.dataset_validator import DatasetImportError
+from app.services.orchestration.datasets import format_registry
+from app.services.orchestration.datasets.format_registry import (
+    FormatNotSupportedError,
+)
 
 
 router = APIRouter(prefix="/api/orchestration/datasets", tags=["orchestration"])
-
-
-_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB outer guard
 
 
 # ─── helpers ────────────────────────────────────────────────────────────────
@@ -129,6 +130,24 @@ async def list_datasets_route(
     )
 
 
+@router.get("/formats", response_model=list[DatasetFormatResponse])
+async def list_formats_route(
+    auth: AuthContext = Depends(get_auth_context),
+):
+    _ = auth
+    return [
+        DatasetFormatResponse(
+            source_type=h.source_type,
+            extensions=list(h.extensions),
+            mime_types=list(h.mime_types),
+            label=h.label,
+            max_upload_bytes=h.max_upload_bytes,
+            supports_client_preview=h.supports_client_preview,
+        )
+        for h in format_registry.all_handlers()
+    ]
+
+
 @router.get("/{dataset_id}", response_model=DatasetDetailResponse)
 async def get_dataset_route(
     dataset_id: uuid.UUID,
@@ -198,28 +217,38 @@ async def import_version_route(
 ):
     await _load_and_gate_dataset(db, auth, dataset_id, action="edit")
 
-    # Outer guard: reject upload bodies > 50 MB before parsing. The parser
-    # then enforces the 20k row cap (CsvImportError -> 400 below).
-    declared_size = getattr(file, "size", None)
-    if isinstance(declared_size, int) and declared_size > _MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="csv upload exceeds 50MB limit")
+    try:
+        handler = format_registry.resolve(
+            filename=file.filename, content_type=file.content_type,
+        )
+    except FormatNotSupportedError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
+    declared_size = getattr(file, "size", None)
+    if isinstance(declared_size, int) and declared_size > handler.max_upload_bytes:
+        raise HTTPException(
+            status_code=413, detail="upload exceeds 50MB limit",
+        )
     raw = await file.read()
-    if len(raw) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="csv upload exceeds 50MB limit")
+    if len(raw) > handler.max_upload_bytes:
+        raise HTTPException(
+            status_code=413, detail="upload exceeds 50MB limit",
+        )
 
     try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="csv must be UTF-8 encoded")
+        imported = handler.parser(
+            raw, id_strategy=id_strategy, id_column=id_column,
+        )
+    except DatasetImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
-    buf = io.StringIO(text)
     try:
         return await dataset_service.import_version(
             db,
             tenant_id=auth.tenant_id,
             dataset_id=dataset_id,
-            file_handle=buf,
+            imported=imported,
+            source_type=handler.source_type,
             source_filename=file.filename,
             source_byte_size=len(raw),
             id_strategy=id_strategy,
@@ -228,8 +257,6 @@ async def import_version_route(
         )
     except dataset_service.DatasetNotFound:
         raise HTTPException(status_code=404, detail="dataset not found")
-    except CsvImportError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get(

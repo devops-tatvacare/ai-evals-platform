@@ -1,9 +1,0 @@
-{
-  "node_type": "source.cohort_query",
-  "config": {
-    "source_ref": "crm.lead_record",
-    "filters": [
-      { "column": "stage", "op": "matches_regex", "value": ".*qualified.*" }
-    ]
-  }
-}

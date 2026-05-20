@@ -64,10 +64,10 @@ describe('PublishErrorSurfacing — Phase 14 / Phase E', () => {
       currentPublishedVersionId: null,
     });
     useWorkflowBuilderStore.getState().addNode({
-      id: 'wati-1',
-      type: 'crm.send_wati',
+      id: 'wh-1',
+      type: 'core.webhook_out',
       position: { x: 0, y: 0 },
-      data: { label: 'WATI', nodeType: 'crm.send_wati' },
+      data: { label: 'Webhook', nodeType: 'core.webhook_out' },
       config: {},
     });
     useWorkflowBuilderStore.getState().addNode({
@@ -84,9 +84,9 @@ describe('PublishErrorSurfacing — Phase 14 / Phase E', () => {
     const body = {
       detail: [
         {
-          node_id: 'wati-1',
-          field: 'config.template_name',
-          message: 'Pick the WATI message template.',
+          node_id: 'wh-1',
+          field: 'config.url',
+          message: 'Set the webhook URL.',
         },
         {
           node_id: 'edge-bad',
@@ -115,7 +115,7 @@ describe('PublishErrorSurfacing — Phase 14 / Phase E', () => {
     // Both messages render in the panel.
     await waitFor(() => {
       expect(
-        screen.getByText('Pick the WATI message template.'),
+        screen.getByText('Set the webhook URL.'),
       ).toBeInTheDocument();
     });
     expect(screen.getByText("duplicate edge id: 'e1'")).toBeInTheDocument();
@@ -130,8 +130,8 @@ describe('PublishErrorSurfacing — Phase 14 / Phase E', () => {
     // Per-node selector groups by node id so the canvas decoration can
     // render a badge on each affected card.
     const grouped = selectPublishErrorsByNodeId(outcome ?? null);
-    expect(grouped['wati-1']).toBeDefined();
-    expect(grouped['wati-1']).toHaveLength(1);
+    expect(grouped['wh-1']).toBeDefined();
+    expect(grouped['wh-1']).toHaveLength(1);
     expect(grouped['edge-bad']).toBeDefined();
   });
 

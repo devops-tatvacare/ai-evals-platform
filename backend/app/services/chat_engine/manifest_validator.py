@@ -180,6 +180,12 @@ _SQL_NON_COLUMN_TOKENS: frozenset[str] = frozenset({
     "numeric", "boolean", "integer", "text", "timestamp", "timestamptz",
     "double", "precision", "real", "bigint", "smallint", "uuid", "interval",
     "date", "json", "jsonb",
+    # SQL operators + scalar functions that show up bare in derived exprs.
+    "like", "ilike", "in", "is", "between",
+    "split_part", "substring", "concat", "coalesce", "nullif",
+    "lower", "upper", "trim", "length", "left", "right", "position",
+    "extract", "date_trunc", "to_char", "to_date", "now",
+    "abs", "ceil", "floor", "greatest", "least",
 })
 
 

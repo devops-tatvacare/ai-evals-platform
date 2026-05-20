@@ -25,9 +25,9 @@ import {
   useAppSettingsStore,
   useAppStore,
   useGlobalSettingsStore,
-  useLLMSettingsStore,
   useUIStore,
 } from '@/stores';
+import { useProviderConfigs } from '@/services/api/aiSettingsQueries';
 import type { QuickActionSpec } from '@/types';
 import { evaluateActionAvailability } from '@/utils/actionAvailability';
 
@@ -40,19 +40,27 @@ import type { QuickActionDescriptor, QuickActionRuntime } from './types';
 function useSpecAvailability(spec: QuickActionSpec) {
   const appId = useAppStore((s) => s.currentApp);
   const appSettings = useAppSettingsStore((s) => s.settings[appId]);
-  // Global + LLM settings stores expose their fields directly on the state
-  // root (no `.settings` substate). Pass the whole state object as the
-  // requirement source so the evaluator can read keys off it.
   const globalSettings = useGlobalSettingsStore();
-  const llmSettings = useLLMSettingsStore();
+  // BYOK: per-user LLM credentials no longer exist. We expose a single
+  // derived flag (`hasConfiguredLlmProvider`) that any quick-action spec
+  // can require via `{ source: 'tenantProviders', key: 'hasConfiguredLlmProvider' }`.
+  const { data: providerConfigs = [] } = useProviderConfigs();
+  const tenantProviders = useMemo(
+    () => ({
+      hasConfiguredLlmProvider: providerConfigs.some(
+        (c) => c.isEnabled && c.validationStatus === 'ok',
+      ),
+    }),
+    [providerConfigs],
+  );
   return useMemo(
     () =>
       evaluateActionAvailability({
         appId,
         action: { requirements: spec.requirements ?? [] },
-        sources: { appSettings, globalSettings, llmSettings },
+        sources: { appSettings, globalSettings, tenantProviders },
       }),
-    [appId, appSettings, globalSettings, llmSettings, spec.requirements],
+    [appId, appSettings, globalSettings, tenantProviders, spec.requirements],
   );
 }
 

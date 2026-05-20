@@ -70,8 +70,10 @@ def test_setting_model_exposes_private_and_shared_unique_indexes():
     assert "uq_application_settings_shared_scope" in index_names
 
 
-def test_settings_asset_policy_marks_llm_settings_private_only():
-    assert is_private_only_asset_key("settings", "llm-settings") is True
+def test_settings_asset_policy_no_private_only_keys_after_phase3():
+    # Phase 3 retired llm-settings; the policy no longer pins any setting key
+    # as private-only. rule-catalog stays freely shareable.
+    assert is_private_only_asset_key("settings", "llm-settings") is False
     assert is_private_only_asset_key("settings", "rule-catalog") is False
 
 
@@ -134,16 +136,6 @@ def test_app_member_cannot_edit_shared_setting_unless_owner():
     assert can_access(user, asset, "edit") is False
 
 
-def test_llm_settings_cannot_be_created_as_shared_visibility():
-    """Creating llm-settings with shared visibility must be denied."""
-    tid = uuid.uuid4()
-    uid = uuid.uuid4()
-    user = _make_user(tid, uid, app_access=frozenset({"voice-rx"}))
-    asset = _make_setting(tid, uid, "", "llm-settings", Visibility.SHARED)
-
-    assert can_access(user, asset, "create") is False
-
-
 def test_shared_upsert_targets_canonical_shared_scope_not_owner_scope():
     stmt = build_setting_upsert_stmt(
         tenant_id=uuid.uuid4(),
@@ -168,8 +160,8 @@ def test_private_upsert_targets_private_scope_including_owner():
         tenant_id=uuid.uuid4(),
         user_id=uuid.uuid4(),
         app_id="voice-rx",
-        key="llm-settings",
-        value={"provider": "openai"},
+        key="rule-catalog",
+        value={"rules": []},
         visibility=Visibility.PRIVATE,
         updated_by=uuid.uuid4(),
         forked_from=None,

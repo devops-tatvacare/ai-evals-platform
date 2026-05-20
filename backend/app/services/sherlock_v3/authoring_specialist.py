@@ -43,7 +43,6 @@ from app.services.orchestration_authoring.orchestration_authoring_pack import (
     OrchestrationAuthoringPack,
     node_type_enum,
 )
-from app.services.sherlock_v3.azure_client import specialist_model
 
 logger = logging.getLogger(__name__)
 
@@ -232,8 +231,7 @@ user fill it in via the inspector.
 - Logic (`logic.*`) shapes flow: `split` fans out by branch, `conditional`
   is binary true/false, `wait` pauses, `merge` joins paths.
 - Filters (`filter.*`) drop recipients without dispatching anything.
-- Action nodes (`crm.*`, `clinical.*`) talk to external systems —
-  WhatsApp, Bolna, SMS, LSQ, EMR. They have side effects when run.
+- Action nodes (`core.webhook_out`) talk to external systems and have side effects when run.
 - `sink.complete` ends a branch with no side effect. **Use `sink.complete`
   as the placeholder when the user says "leave the action node empty"**;
   NEVER use `core.webhook_out` as a placeholder — it dispatches HTTP and
@@ -243,7 +241,6 @@ user fill it in via the inspector.
 - `list_node_types(category?)`           — palette enumeration
 - `list_provider_connections(provider)`  — tenant + app scoped
 - `list_action_templates(channel)`       — tenant + app scoped
-- `list_wati_templates(connection_id)`   — per-connection re-checked
 - `list_cohort_datasets()`               — tenant + app scoped
 - `apply_patch(ops_json, rationale)`     — TERMINAL — emit one CanvasPatch
 
@@ -282,9 +279,10 @@ def _count_nodes(builder_context: BuilderSnapshot) -> int:
 
 
 def build_authoring_specialist(
-    client: openai.AsyncAzureOpenAI,
+    client: openai.AsyncOpenAI,
     app_id: str,
     *,
+    model: str,
     builder_context: BuilderSnapshot,
     auth: AuthContext,
 ) -> Agent:
@@ -344,7 +342,7 @@ def build_authoring_specialist(
     return Agent(
         name='sherlock-authoring-specialist',
         instructions=system_prompt,
-        model=OpenAIResponsesModel(specialist_model(), client),
+        model=OpenAIResponsesModel(model, client),
         model_settings=ModelSettings(
             parallel_tool_calls=False,
             reasoning=Reasoning(effort='medium'),

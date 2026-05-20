@@ -52,6 +52,15 @@ export type InviteLinkStatus = 'active' | 'revoked' | 'expired' | 'exhausted';
 export type InviteSignupMethod = 'password' | 'sso';
 export type InviteListStatus = 'active' | 'terminal' | 'all';
 
+export type InviteEmailStatus =
+  | 'not_requested'
+  | 'sent'
+  | 'recipient_rejected'
+  | 'not_configured'
+  | 'failed';
+
+export type InviteMailLogStatus = 'sent' | 'failed';
+
 export interface InviteLink {
   id: string;
   label: string | null;
@@ -67,6 +76,10 @@ export interface InviteLink {
   createdAt: string;
   createdBy: string | null;
   createdByEmail: string;
+  // Populated only when the caller requests ?include=latestSend.
+  latestSendRecipient?: string | null;
+  latestSendStatus?: InviteMailLogStatus | null;
+  latestSendAt?: string | null;
 }
 
 export interface InviteLinkUse {
@@ -83,10 +96,16 @@ export interface CreateInviteLinkRequest {
   maxUses?: number | null;
   expiresInHours?: number;
   signupMethod?: InviteSignupMethod;
+  /** When set, the platform emails the invite to this address and reports
+   *  the outcome on the response's ``emailStatus`` field. */
+  recipientEmail?: string;
+  /** Optional greeting personalisation. Defaults to the email local part. */
+  userName?: string;
 }
 
 export interface CreateInviteLinkResponse extends InviteLink {
   inviteUrl: string;
+  emailStatus: InviteEmailStatus;
 }
 
 export const adminApi = {
@@ -137,9 +156,12 @@ export const adminApi = {
       body: JSON.stringify(data),
     }),
 
-  listInviteLinks: (params?: { status?: InviteListStatus }): Promise<InviteLink[]> => {
+  listInviteLinks: (
+    params?: { status?: InviteListStatus; include?: ('latestSend')[] },
+  ): Promise<InviteLink[]> => {
     const qs = new URLSearchParams();
     if (params?.status) qs.set('status', params.status);
+    if (params?.include?.length) qs.set('include', params.include.join(','));
     const suffix = qs.toString() ? `?${qs.toString()}` : '';
     return apiRequest(`/api/admin/invite-links${suffix}`);
   },

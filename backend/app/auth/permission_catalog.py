@@ -22,6 +22,28 @@ class PermissionGroup:
     permissions: tuple[PermissionCatalogEntry, ...]
 
 
+_PLATFORM_GROUP = PermissionGroup(
+    id='platform',
+    label='Platform',
+    description=(
+        'Cross-tenant platform-staff actions. Grant only to operators '
+        'who manage defaults that apply to every tenant.'
+    ),
+    permissions=(
+        PermissionCatalogEntry(
+            id='platform:edit',
+            label='Edit platform-wide configuration',
+            description=(
+                'Edit platform-default settings that apply across every tenant '
+                '(e.g. LLM call-site defaults seeded for tenants without their own).'
+            ),
+            group_id='platform',
+            group_label='Platform',
+        ),
+    ),
+)
+
+
 PERMISSION_GROUPS: tuple[PermissionGroup, ...] = (
     PermissionGroup(
         id='listings',
@@ -123,6 +145,13 @@ PERMISSION_GROUPS: tuple[PermissionGroup, ...] = (
                 id='orchestration:manage',
                 label='Manage orchestration',
                 description='Create, edit, publish, run, archive, and otherwise mutate orchestration assets and runtime actions.',
+                group_id='orchestration',
+                group_label='Orchestration',
+            ),
+            PermissionCatalogEntry(
+                id='orchestration:admin:comm_cap',
+                label='Manage communication-cap policy',
+                description='Create or update the per-app rolling-window communication cap that gates outbound dispatch nodes.',
                 group_id='orchestration',
                 group_label='Orchestration',
             ),
@@ -242,6 +271,23 @@ PERMISSION_GROUPS: tuple[PermissionGroup, ...] = (
         ),
     ),
     PermissionGroup(
+        id='notifications',
+        label='Notifications',
+        description='Tenant-wide email notification defaults, subscribers, and audit.',
+        permissions=(
+            PermissionCatalogEntry(
+                id='notifications:manage',
+                label='Manage notifications',
+                description=(
+                    'Configure required notifications, audit subscribers, and inspect '
+                    'the email send log.'
+                ),
+                group_id='notifications',
+                group_label='Notifications',
+            ),
+        ),
+    ),
+    PermissionGroup(
         id='users',
         label='User management',
         description='Manage users, invite links, and role assignment.',
@@ -309,6 +355,9 @@ PERMISSION_GROUPS: tuple[PermissionGroup, ...] = (
             ),
         ),
     ),
+    # Platform-staff group sits last — it's a cross-tenant concern and the
+    # tenant-scoped admin role editor should surface tenant permissions first.
+    _PLATFORM_GROUP,
 )
 
 OWNER_ONLY_SURFACES: tuple[dict[str, str], ...] = (

@@ -53,8 +53,6 @@ from app.services.orchestration_authoring.lookup_models import (
     NodeTypesList,
     ProviderConnectionRef,
     ProviderConnectionsList,
-    WatiTemplateRef,
-    WatiTemplatesList,
     contains_credential_fields,
 )
 
@@ -664,18 +662,6 @@ _LIST_ACTION_TEMPLATES_SCHEMA: dict[str, Any] = {
     },
 }
 
-_LIST_WATI_TEMPLATES_SCHEMA: dict[str, Any] = {
-    'type': 'object',
-    'additionalProperties': False,
-    'required': ['connection_id'],
-    'properties': {
-        'connection_id': {
-            'type': 'string',
-            'description': 'UUID of the WATI provider_connections row.',
-        },
-    },
-}
-
 _LIST_COHORT_DATASETS_SCHEMA: dict[str, Any] = {
     'type': 'object',
     'additionalProperties': False,
@@ -1055,88 +1041,6 @@ async def _list_action_templates_handler(ctx: Any, args: str) -> str:
         )
 
 
-async def _list_wati_templates_handler(ctx: Any, args: str) -> str:
-    started = time.monotonic()
-    sherlock_ctx = getattr(ctx, 'context', ctx)
-    audit: dict[str, Any] = {'reason_code': None}
-    builder_context = getattr(sherlock_ctx, 'builder_context', None)
-    auth_outer = getattr(sherlock_ctx, 'auth', None)
-    try:
-        check = await _check_layered_auth(sherlock_ctx, started=started, audit=audit)
-        if isinstance(check, str):
-            return check
-        auth, builder_context = check
-
-        parsed = json.loads(args) if args.strip() else {}
-        connection_id_raw = parsed.get('connection_id')
-        if not isinstance(connection_id_raw, str) or not connection_id_raw:
-            audit['reason_code'] = 'NODE_CONFIG_INVALID'
-            return _error_result(
-                reason_code='NODE_CONFIG_INVALID',
-                message='connection_id is required',
-                started=started,
-            )
-        try:
-            import uuid as _uuid
-            connection_uuid = _uuid.UUID(connection_id_raw)
-        except (TypeError, ValueError):
-            audit['reason_code'] = 'NODE_CONFIG_INVALID'
-            return _error_result(
-                reason_code='NODE_CONFIG_INVALID',
-                message='connection_id is not a UUID',
-                started=started,
-            )
-
-        # Connection-ownership re-check at the same SQL boundary as the
-        # template fetch — use the existing helper so the tenant + app scope
-        # mirrors the connections route.
-        from app.database import async_session
-        from app.services.orchestration.api.agents import list_connection_wati_templates
-
-        async with async_session() as db:
-            result = await list_connection_wati_templates(
-                db,
-                tenant_id=auth.tenant_id,
-                app_id=builder_context.app_id,
-                connection_id=connection_uuid,
-            )
-
-        raw_items = result.get('items') or []
-        items: list[WatiTemplateRef] = []
-        for raw in raw_items:
-            if not isinstance(raw, dict):
-                continue
-            params = raw.get('parameters') or []
-            if not isinstance(params, list):
-                params = []
-            items.append(WatiTemplateRef(
-                name=str(raw.get('name') or ''),
-                language=str(raw.get('language') or ''),
-                status=str(raw.get('status') or ''),
-                parameters=[str(p) for p in params],
-            ))
-
-        payload = WatiTemplatesList(
-            items=items,
-            error=result.get('error'),
-        ).model_dump(mode='json')
-        return _mark_leak_in_result(audit, _lookup_result_json(
-            started=started,
-            summary=f'{len(items)} WATI template(s).',
-            payload=payload,
-            tool_name='list_wati_templates',
-        ))
-    finally:
-        _emit_authoring_audit(
-            tool='list_wati_templates',
-            builder_context=builder_context,
-            auth=auth_outer,
-            started=started,
-            reason_code=audit.get('reason_code'),
-            patch_op_count=0,
-        )
-
-
 async def _list_cohort_datasets_handler(ctx: Any, args: str) -> str:
     started = time.monotonic()
     sherlock_ctx = getattr(ctx, 'context', ctx)
@@ -1259,15 +1163,6 @@ class OrchestrationAuthoringPack:
                 'params_json_schema': _LIST_ACTION_TEMPLATES_SCHEMA,
             },
             {
-                'name': 'list_wati_templates',
-                'description': (
-                    'List WATI message templates registered against the '
-                    'given connection_id. Returns (name, language, status, '
-                    'parameters); never returns API tokens.'
-                ),
-                'params_json_schema': _LIST_WATI_TEMPLATES_SCHEMA,
-            },
-            {
                 'name': 'list_cohort_datasets',
                 'description': (
                     'List cohort_datasets in this app. Returns (id, name, '
@@ -1284,7 +1179,6 @@ class OrchestrationAuthoringPack:
             'list_node_types': _list_node_types_handler,
             'list_provider_connections': _list_provider_connections_handler,
             'list_action_templates': _list_action_templates_handler,
-            'list_wati_templates': _list_wati_templates_handler,
             'list_cohort_datasets': _list_cohort_datasets_handler,
         }
 
@@ -1310,9 +1204,6 @@ class OrchestrationAuthoringPack:
             ),
             'list_action_templates': (
                 'List action templates by channel.'
-            ),
-            'list_wati_templates': (
-                'List WATI message templates registered against a connection.'
             ),
             'list_cohort_datasets': (
                 'List cohort datasets in this app and their latest version IDs.'

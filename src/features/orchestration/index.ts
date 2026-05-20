@@ -3,7 +3,7 @@
 // the feature's internal layout can change without touching every consumer.
 
 export { WorkflowBuilderPage } from './components/WorkflowBuilderPage';
-export { WorkflowListPage } from './components/WorkflowListPage';
+export { CampaignsPage } from './components/campaigns/CampaignsPage';
 export { useWorkflowBuilderStore } from './store/workflowBuilderStore';
 
 export type {

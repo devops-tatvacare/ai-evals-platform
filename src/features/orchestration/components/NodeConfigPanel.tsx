@@ -14,10 +14,10 @@ import type {
 
 import { DynamicConfigForm, type JsonSchema } from './DynamicConfigForm';
 import { InspectorSection } from './inspector/InspectorPrimitives';
-import { FieldMappingEditor, type FieldMapping } from './editors/FieldMappingEditor';
+import { DatasetPicker } from './editors/DatasetPicker';
 import { MergePolicyEditor } from './editors/MergePolicyEditor';
 import { PredicateBuilder } from './editors/PredicateBuilder';
-import { SourceSelector } from './editors/SourceSelector';
+import { SavedCohortPicker } from './editors/SavedCohortPicker';
 import { SplitBranchEditor } from './editors/SplitBranchEditor';
 import { WaitConditionEditor } from './editors/WaitConditionEditor';
 
@@ -89,7 +89,8 @@ export function NodeConfigPanel() {
     | string
     | undefined;
 
-  const wfType = (workflowType ?? 'crm') as WorkflowType;
+  const _wfType = (workflowType ?? 'crm') as WorkflowType;
+  void _wfType;
   const config = node.config as Record<string, unknown>;
 
   // Common helper used by every specialised editor: shallow-merge a config
@@ -101,11 +102,18 @@ export function NodeConfigPanel() {
   let body: React.ReactNode;
 
   switch (preferredEditor) {
-    case 'SourceSelector': {
+    case 'SavedCohortPicker': {
       body = (
-        <SourceSelector
-          workflowType={wfType}
-          appId={appId}
+        <SavedCohortPicker
+          value={config}
+          onChange={(next) => setConfig({ ...config, ...next })}
+        />
+      );
+      break;
+    }
+    case 'DatasetPicker': {
+      body = (
+        <DatasetPicker
           value={config}
           onChange={(next) => setConfig({ ...config, ...next })}
         />
@@ -198,43 +206,6 @@ export function NodeConfigPanel() {
       );
       break;
     }
-    case 'FieldMappingEditor': {
-      // Mutation nodes — the descriptor schema still drives most fields
-      // (connection_id, target_stage, etc.). The `fields` / `field_mappings`
-      // / `structured_fields` slot is special-cased.
-      body = (
-        <>
-          <DynamicConfigForm
-            schema={desc.configSchema as unknown as JsonSchema}
-            value={config}
-            onChange={setConfig}
-            hiddenFields={mergeHiddenFields(hiddenFields, [
-              'fields',
-              'field_mappings',
-              'structured_fields',
-            ])}
-            appId={appId}
-            connectionIdForVariables={
-              typeof config.connection_id === 'string' ? config.connection_id : undefined
-            }
-            agentIdForVariables={
-              typeof config.agent_id === 'string' && config.agent_id
-                ? config.agent_id
-                : undefined
-            }
-            templateNameForVariables={
-              typeof config.template_name === 'string' ? config.template_name : undefined
-            }
-          />
-          <FieldMappingSlotsForNode
-            nodeType={node.type}
-            config={config}
-            setConfig={setConfig}
-          />
-        </>
-      );
-      break;
-    }
     default: {
       body = (
         <DynamicConfigForm
@@ -324,66 +295,6 @@ export function NodeConfigPanel() {
         ) : null}
       </fieldset>
     </div>
-  );
-}
-
-function mergeHiddenFields(
-  base: ReadonlySet<string> | undefined,
-  extra: string[],
-): ReadonlySet<string> {
-  const out = new Set<string>(base ?? []);
-  for (const f of extra) out.add(f);
-  return out;
-}
-
-function FieldMappingSlotsForNode({
-  nodeType,
-  config,
-  setConfig,
-}: {
-  nodeType: string;
-  config: Record<string, unknown>;
-  setConfig(next: Record<string, unknown>): void;
-}) {
-  // crm.lsq_log_activity uses `fields` (legacy plural-noun preserved by
-  // the existing handler config). clinical.emr_write uses
-  // `structured_fields`. crm.lsq_update_stage has no field mappings.
-  if (nodeType === 'crm.lsq_log_activity') {
-    return (
-      <SlotLabel label="Activity field mappings">
-        <FieldMappingEditor
-          value={config.fields as FieldMapping[] | undefined}
-          onChange={(next) => setConfig({ ...config, fields: next })}
-          targetLabel="LSQ field"
-        />
-      </SlotLabel>
-    );
-  }
-  if (nodeType === 'clinical.emr_write') {
-    return (
-      <SlotLabel label="EMR structured fields">
-        <FieldMappingEditor
-          value={config.structured_fields as FieldMapping[] | undefined}
-          onChange={(next) => setConfig({ ...config, structured_fields: next })}
-          targetLabel="EMR field"
-        />
-      </SlotLabel>
-    );
-  }
-  return null;
-}
-
-function SlotLabel({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <InspectorSection title={label}>
-      {children}
-    </InspectorSection>
   );
 }
 

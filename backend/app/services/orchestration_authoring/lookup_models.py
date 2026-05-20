@@ -54,21 +54,6 @@ class ActionTemplateRef(BaseModel):
     channel: str
 
 
-class WatiTemplateRef(BaseModel):
-    """Tight reference shape for `list_wati_templates`.
-
-    Each row is a normalized WATI message-template summary returned by
-    the existing `list_connection_wati_templates` cache. Strings only.
-    """
-
-    model_config = ConfigDict(extra='forbid')
-
-    name: str
-    language: str
-    status: str
-    parameters: list[str] = Field(default_factory=list)
-
-
 class CohortDatasetRef(BaseModel):
     """Tight reference shape for `list_cohort_datasets`."""
 
@@ -107,12 +92,6 @@ class ActionTemplatesList(BaseModel):
     items: list[ActionTemplateRef] = Field(default_factory=list)
 
 
-class WatiTemplatesList(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-    items: list[WatiTemplateRef] = Field(default_factory=list)
-    error: str | None = None
-
-
 class CohortDatasetsList(BaseModel):
     model_config = ConfigDict(extra='forbid')
     items: list[CohortDatasetRef] = Field(default_factory=list)
@@ -144,12 +123,10 @@ __all__ = [
     'CREDENTIAL_FIELD_BLOCKLIST',
     'ProviderConnectionRef',
     'ActionTemplateRef',
-    'WatiTemplateRef',
     'CohortDatasetRef',
     'NodeTypeRef',
     'ProviderConnectionsList',
     'ActionTemplatesList',
-    'WatiTemplatesList',
     'CohortDatasetsList',
     'NodeTypesList',
     'ProviderName',

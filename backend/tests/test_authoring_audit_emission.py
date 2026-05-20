@@ -175,7 +175,7 @@ class AuditEmissionShapeTests(unittest.IsolatedAsyncioTestCase):
         ops = json.dumps([{
             'op': 'add_node',
             'node_id': 'n1',
-            'payload': {'node_type': 'crm.send_wati', 'config': 'not an object'},
+            'payload': {'node_type': 'core.webhook_out', 'config': 'not an object'},
         }])
         await _call_owned(
             _make_ctx(builder=_make_snapshot(), auth=_make_auth()),

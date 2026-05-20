@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Modal, Button, Input, Select } from '@/components/ui';
+import { useState, useEffect, useId } from 'react';
+import { X } from 'lucide-react';
+import { Button, Input, Select, RightSlideOverShell } from '@/components/ui';
 import type { AdminUser, UpdateUserRequest } from '@/services/api/adminApi';
 import { rolesApi } from '@/services/api/rolesApi';
 import type { RoleResponse } from '@/services/api/rolesApi';
@@ -20,6 +21,7 @@ export function EditUserDialog({
   onClose,
   onSubmit,
 }: EditUserDialogProps) {
+  const titleId = useId();
   const [displayName, setDisplayName] = useState('');
   const [roleId, setRoleId] = useState('');
   const [roles, setRoles] = useState<RoleResponse[]>([]);
@@ -44,15 +46,14 @@ export function EditUserDialog({
     }
   }, [user]);
 
-  if (!user) return null;
-
-  const isSelf = user.id === currentUserId;
-  const isOwnerUser = user.isOwner;
+  const isSelf = !!user && user.id === currentUserId;
+  const isOwnerUser = !!user?.isOwner;
   const canChangeRole = canAssignRole && !isSelf && !isOwnerUser;
   const canToggleActive = !isSelf && !isOwnerUser;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!user) return;
     if (!displayName.trim()) {
       setError('Display name is required');
       return;
@@ -87,13 +88,30 @@ export function EditUserDialog({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Edit User">
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <RightSlideOverShell isOpen={isOpen} onClose={onClose} labelledBy={titleId}>
+      <div className="flex items-center justify-between border-b border-[var(--border-default)] px-5 py-4">
+        <h2 id={titleId} className="text-base font-semibold text-[var(--text-primary)]">
+          Edit User
+        </h2>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="rounded-md p-1 text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <form
+        onSubmit={handleSubmit}
+        className="flex-1 overflow-y-auto px-5 py-4 space-y-4"
+      >
         <div>
           <label className="mb-1 block text-[13px] font-medium text-[var(--text-secondary)]">
             Email
           </label>
-          <Input value={user.email} disabled />
+          <Input value={user?.email ?? ''} disabled />
         </div>
         <div>
           <label className="mb-1 block text-[13px] font-medium text-[var(--text-secondary)]">
@@ -110,7 +128,7 @@ export function EditUserDialog({
             Role
           </label>
           {isOwnerUser ? (
-            <Input value={user.roleName} disabled />
+            <Input value={user?.roleName ?? ''} disabled />
           ) : (
             <Select
               value={roleId}
@@ -146,16 +164,16 @@ export function EditUserDialog({
         {error && (
           <p className="text-[13px] text-[var(--color-error)]">{error}</p>
         )}
-
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" size="md" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" size="md" isLoading={isSubmitting}>
-            Save Changes
-          </Button>
-        </div>
       </form>
-    </Modal>
+
+      <div className="border-t border-[var(--border-default)] px-5 py-3 flex justify-end gap-2">
+        <Button type="button" variant="secondary" size="md" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button size="md" isLoading={isSubmitting} onClick={() => handleSubmit()}>
+          Save Changes
+        </Button>
+      </div>
+    </RightSlideOverShell>
   );
 }

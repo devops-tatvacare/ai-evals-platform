@@ -104,4 +104,23 @@
     color: #9ca3af;
     padding: 4mm 0;
   }
+
+  /* Phase 2 — partial-report watermark. The DataQualityBanner stamps
+     data-partial="true" on its root in print mode; this rule layers a faint
+     diagonal label on the page so the PDF reader knows the artifact has
+     missing inputs even if the banner scrolls off the top of the page. */
+  .report-partial-watermark {
+    position: fixed;
+    top: 38%;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 56px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    color: rgba(180, 83, 9, 0.10);
+    transform: rotate(-22deg);
+    pointer-events: none;
+    z-index: 0;
+  }
 }

@@ -5,12 +5,13 @@ get / delete version), tenant isolation, name-conflict mapping, and
 workflow-binding refusal on delete. Live-DB via the shared ``db_session``
 fixture; rolled back by the savepoint pattern in conftest.
 
-CsvImportError propagation is asserted (the service does NOT wrap parser
-errors — the route layer maps them to 400).
+The service is parser-agnostic: callers parse to ``ImportedDataset`` and pass
+that plus a ``source_type`` string. Parser-level errors are covered by the
+format-specific importer tests; this file asserts persistence + cross-tenant
+isolation + binding-aware delete behaviour.
 """
 from __future__ import annotations
 
-import io
 import uuid
 
 import pytest
@@ -33,14 +34,14 @@ from app.services.orchestration.api.datasets import (
     import_version,
     list_datasets,
 )
-from app.services.orchestration.datasets.csv_importer import CsvImportError
+from app.services.orchestration.datasets.csv_importer import parse_csv
 
 
 CSV_BASIC = "recipient_id,name,age\nr1,alice,30\nr2,bob,25\nr3,carol,40\n"
 
 
-def _csv(text: str) -> io.StringIO:
-    return io.StringIO(text)
+def _imported(text: str, *, id_strategy: str = "column", id_column: str | None = "recipient_id"):
+    return parse_csv(text.encode("utf-8"), id_strategy=id_strategy, id_column=id_column)
 
 
 async def _seed_workflow_with_dataset_binding(
@@ -73,8 +74,8 @@ async def _seed_workflow_with_dataset_binding(
             "nodes": [
                 {
                     "id": "src",
-                    "type": "source.cohort_query",
-                    "config": {"source_ref": f"dataset.{version_id}"},
+                    "type": "source.dataset",
+                    "config": {"dataset_version_id": str(version_id)},
                 },
                 {"id": "done", "type": "sink.complete", "config": {}},
             ],
@@ -110,10 +111,16 @@ async def test_create_import_list_get_happy_path(db_session, seed_tenant_user_ap
         db_session,
         tenant_id=tenant_id,
         dataset_id=ds["id"],
-        file_handle=_csv(CSV_BASIC),
+        imported=_imported(CSV_BASIC, id_strategy="column", id_column="recipient_id"),
+
+        source_type="csv",
+
         source_filename="cohort.csv",
+
         source_byte_size=len(CSV_BASIC),
+
         id_strategy="column",
+
         id_column="recipient_id",
         imported_by=user_id,
     )
@@ -164,10 +171,16 @@ async def test_import_with_uuid_id_strategy(db_session, seed_tenant_user_app):
         db_session,
         tenant_id=tenant_id,
         dataset_id=ds["id"],
-        file_handle=_csv(csv_no_id),
+        imported=_imported(csv_no_id, id_strategy="uuid", id_column=None),
+
+        source_type="csv",
+
         source_filename="x.csv",
+
         source_byte_size=len(csv_no_id),
+
         id_strategy="uuid",
+
         id_column=None,
         imported_by=user_id,
     )
@@ -209,10 +222,16 @@ async def test_import_twice_increments_version_number(
         db_session,
         tenant_id=tenant_id,
         dataset_id=ds["id"],
-        file_handle=_csv(CSV_BASIC),
+        imported=_imported(CSV_BASIC, id_strategy="column", id_column="recipient_id"),
+
+        source_type="csv",
+
         source_filename="v1.csv",
+
         source_byte_size=len(CSV_BASIC),
+
         id_strategy="column",
+
         id_column="recipient_id",
         imported_by=user_id,
     )
@@ -221,10 +240,16 @@ async def test_import_twice_increments_version_number(
         db_session,
         tenant_id=tenant_id,
         dataset_id=ds["id"],
-        file_handle=_csv(csv_v2),
+        imported=_imported(csv_v2, id_strategy="column", id_column="recipient_id"),
+
+        source_type="csv",
+
         source_filename="v2.csv",
+
         source_byte_size=len(csv_v2),
+
         id_strategy="column",
+
         id_column="recipient_id",
         imported_by=user_id,
     )
@@ -235,36 +260,6 @@ async def test_import_twice_increments_version_number(
         db_session, tenant_id=tenant_id, dataset_id=ds["id"],
     )
     assert [v["version_number"] for v in detail["versions"]] == [2, 1]
-
-
-# ─── 4. Bad id_column raises CsvImportError (unwrapped) ────────────────────
-
-
-@pytest.mark.asyncio
-async def test_import_with_bad_id_column_raises_csv_import_error(
-    db_session, seed_tenant_user_app
-):
-    tenant_id, user_id, app_id = seed_tenant_user_app
-    ds = await create_dataset(
-        db_session,
-        tenant_id=tenant_id,
-        app_id=app_id,
-        name=f"badid-{uuid.uuid4().hex[:6]}",
-        description=None,
-        created_by=user_id,
-    )
-    with pytest.raises(CsvImportError):
-        await import_version(
-            db_session,
-            tenant_id=tenant_id,
-            dataset_id=ds["id"],
-            file_handle=_csv(CSV_BASIC),
-            source_filename="bad.csv",
-            source_byte_size=len(CSV_BASIC),
-            id_strategy="column",
-            id_column="not_a_real_column",
-            imported_by=user_id,
-        )
 
 
 # ─── 5 + 6. delete_version with / without binding ─────────────────────────
@@ -287,10 +282,16 @@ async def test_delete_version_when_no_binding_succeeds(
         db_session,
         tenant_id=tenant_id,
         dataset_id=ds["id"],
-        file_handle=_csv(CSV_BASIC),
+        imported=_imported(CSV_BASIC, id_strategy="column", id_column="recipient_id"),
+
+        source_type="csv",
+
         source_filename="x.csv",
+
         source_byte_size=len(CSV_BASIC),
+
         id_strategy="column",
+
         id_column="recipient_id",
         imported_by=user_id,
     )
@@ -323,10 +324,16 @@ async def test_delete_version_blocked_by_workflow_binding(
         db_session,
         tenant_id=tenant_id,
         dataset_id=ds["id"],
-        file_handle=_csv(CSV_BASIC),
+        imported=_imported(CSV_BASIC, id_strategy="column", id_column="recipient_id"),
+
+        source_type="csv",
+
         source_filename="x.csv",
+
         source_byte_size=len(CSV_BASIC),
+
         id_strategy="column",
+
         id_column="recipient_id",
         imported_by=user_id,
     )
@@ -369,10 +376,16 @@ async def test_delete_dataset_cascades_when_unbound(
         db_session,
         tenant_id=tenant_id,
         dataset_id=ds["id"],
-        file_handle=_csv(CSV_BASIC),
+        imported=_imported(CSV_BASIC, id_strategy="column", id_column="recipient_id"),
+
+        source_type="csv",
+
         source_filename="x.csv",
+
         source_byte_size=len(CSV_BASIC),
+
         id_strategy="column",
+
         id_column="recipient_id",
         imported_by=user_id,
     )
@@ -400,10 +413,16 @@ async def test_delete_dataset_blocked_by_workflow_binding(
         db_session,
         tenant_id=tenant_id,
         dataset_id=ds["id"],
-        file_handle=_csv(CSV_BASIC),
+        imported=_imported(CSV_BASIC, id_strategy="column", id_column="recipient_id"),
+
+        source_type="csv",
+
         source_filename="x.csv",
+
         source_byte_size=len(CSV_BASIC),
+
         id_strategy="column",
+
         id_column="recipient_id",
         imported_by=user_id,
     )
@@ -456,10 +475,16 @@ async def test_cross_tenant_isolation(db_session, seed_tenant_user_app):
             db_session,
             tenant_id=tenant_b,
             dataset_id=ds_a["id"],
-            file_handle=_csv(CSV_BASIC),
+            imported=_imported(CSV_BASIC, id_strategy="column", id_column="recipient_id"),
+
+            source_type="csv",
+
             source_filename="x.csv",
+
             source_byte_size=len(CSV_BASIC),
+
             id_strategy="column",
+
             id_column="recipient_id",
             imported_by=user_id,
         )

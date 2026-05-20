@@ -102,7 +102,7 @@ async def _seed_workflow_with_run(
     step = WorkflowRunNodeStep(
         id=uuid.uuid4(), tenant_id=tenant_id, app_id=app_id,
         workflow_id=wf.id, workflow_version_id=ver.id,
-        run_id=run.id, node_id="n-dispatch", node_type="crm.send_wati",
+        run_id=run.id, node_id="n-dispatch", node_type="core.webhook_out",
         status="completed",
         started_at=datetime.now(timezone.utc),
         completed_at=datetime.now(timezone.utc),

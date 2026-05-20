@@ -7,8 +7,7 @@ import { EvaluatorToggleStep, type EvaluatorToggles } from './EvaluatorToggleSte
 import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
 import { ReviewStep, type ReviewSection, type ReviewSummary } from './ReviewStep';
 import { ParallelConfigSection } from './ParallelConfigSection';
-import { useLLMSettingsStore, hasProviderCredentials, useGlobalSettingsStore, LLM_PROVIDERS } from '@/stores';
-import type { LLMProvider } from '@/types';
+import { useGlobalSettingsStore } from '@/stores';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { routes } from '@/config/routes';
 import type { PreviewResponse } from '@/types';
@@ -62,9 +61,8 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
   const [parallelThreads, setParallelThreads] = useState(false);
   const [threadWorkers, setThreadWorkers] = useState(3);
   const [selectedRuleIds, setSelectedRuleIds] = useState<string[] | null>(null);
-  const [modelsLoading, setModelsLoading] = useState(false);
   const [llmConfig, setLlmConfig] = useState<LLMConfig>({
-    provider: LLM_PROVIDERS[0].value,
+    provider: '',
     model: '',
     temperature: 0.1,
     thinking: 'low',
@@ -91,11 +89,11 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
       case 3: return customOnly
         ? customEvaluatorIds.length > 0
         : Object.values(evaluators).some(Boolean) || customEvaluatorIds.length > 0;
-      case 4: return Boolean(llmConfig.model) && !modelsLoading && hasProviderCredentials(llmConfig.provider as LLMProvider, useLLMSettingsStore.getState());
+      case 4: return Boolean(llmConfig.provider) && Boolean(llmConfig.model);
       case 5: return true;
       default: return false;
     }
-  }, [currentStep, runName, uploadedFile, previewData, threadScope, selectedThreadIds, sampleSize, evaluators, customOnly, customEvaluatorIds, llmConfig, modelsLoading]);
+  }, [currentStep, runName, uploadedFile, previewData, threadScope, selectedThreadIds, sampleSize, evaluators, customOnly, customEvaluatorIds, llmConfig]);
 
   const handleBack = useCallback(() => {
     setCurrentStep((s) => Math.max(0, s - 1));
@@ -305,7 +303,7 @@ export function NewBatchEvalOverlay({ onClose }: NewBatchEvalOverlayProps) {
       case 4:
         return (
           <div className="space-y-5">
-            <LLMConfigStep config={llmConfig} onChange={setLlmConfig} onModelsLoading={setModelsLoading} />
+            <LLMConfigStep config={llmConfig} onChange={setLlmConfig} />
             <ParallelConfigSection
               parallel={parallelThreads}
               workers={threadWorkers}

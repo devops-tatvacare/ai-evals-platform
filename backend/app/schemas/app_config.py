@@ -7,6 +7,7 @@ from pydantic import Field
 from app.models.mixins.shareable import Visibility
 from app.schemas.app_analytics_config import AppAnalyticsConfig
 from app.schemas.base import CamelModel
+from app.schemas.eval_run import EvalType
 
 
 class AppVariableConfig(CamelModel):
@@ -31,6 +32,7 @@ class AppFeaturesConfig(CamelModel):
     has_human_review: bool = False
     has_reviews: bool = False
     has_orchestration: bool = False
+    has_notifications: bool = False
 
 
 class AppReviewsConfig(CamelModel):
@@ -60,7 +62,6 @@ class AppAssetDefaults(CamelModel):
     prompt: Visibility = Visibility.PRIVATE
     schema_: Visibility = Field(default=Visibility.PRIVATE, alias="schema")
     adversarial_contract: Visibility = Visibility.PRIVATE
-    llm_settings: Visibility = Visibility.PRIVATE
 
 
 class AppAssetPolicyConfig(CamelModel):
@@ -174,12 +175,12 @@ class ActionRequirement(CamelModel):
     """Per-spec runtime gate (settings key must be present etc).
 
     Mirrors the FE `AppActionRequirementConfig`. ``source`` selects which
-    in-memory store to read from (appSettings | globalSettings | llmSettings),
+    in-memory store to read from (appSettings | globalSettings | tenantProviders),
     ``key`` is the field on that source; ``validation`` defaults to
     ``nonEmpty``. Empty list = no gate.
     """
 
-    source: Literal["appSettings", "globalSettings", "llmSettings"]
+    source: Literal["appSettings", "globalSettings", "tenantProviders"]
     key: str
     validation: Literal["nonEmpty", "truthy"] | None = None
     label: str | None = None
@@ -239,6 +240,47 @@ class CrmWorkspaceConfig(CamelModel):
     pii_visibility: dict[str, list[str]] = Field(default_factory=dict)
 
 
+class AppRunDetailReportTabConfig(CamelModel):
+    enabled: bool = True
+    enabled_for_eval_types: list[EvalType] | None = None
+
+
+class AppRunDetailDrilldownConfig(CamelModel):
+    param_name: str
+    route: str
+    back_label: str
+
+
+class AppRunDetailExtrasConfig(CamelModel):
+    review: bool = False
+    adversarial_axes: bool = False
+    raw_payload: bool = False
+    history_tab: bool = False
+    drilldown: AppRunDetailDrilldownConfig | None = None
+
+
+class AppRunDetailBehaviourConfig(CamelModel):
+    hide_tabs_while_active: bool = False
+    banner_only_on_failed: bool = False
+    failure_headline_from_result: bool = False
+
+
+RunShape = Literal["single", "batch"]
+
+
+class AppRunDetailConfig(CamelModel):
+    """Run-detail surface config. ``run_shape`` chooses the hook that drives
+    fetching and chrome: ``single`` for one-eval runs (``EvalRun`` shape, with
+    optional drilldown), ``batch`` for many-eval runs (``Run`` shape with
+    thread + adversarial sub-rows and custom banners)."""
+
+    run_shape: RunShape = "single"
+    eval_types: list[EvalType] = Field(default_factory=list)
+    report_tab: AppRunDetailReportTabConfig = Field(default_factory=AppRunDetailReportTabConfig)
+    extras: AppRunDetailExtrasConfig = Field(default_factory=AppRunDetailExtrasConfig)
+    behaviour: AppRunDetailBehaviourConfig = Field(default_factory=AppRunDetailBehaviourConfig)
+
+
 class AppConfig(CamelModel):
     display_name: str
     icon: str
@@ -259,3 +301,4 @@ class AppConfig(CamelModel):
     page_actions: dict[PageType, list[PageActionSpec]] = Field(default_factory=dict)
     quick_actions: list[QuickActionSpec] = Field(default_factory=list)
     evaluator_detail: EvaluatorDetailConfig = Field(default_factory=EvaluatorDetailConfig)
+    run_detail: AppRunDetailConfig = Field(default_factory=AppRunDetailConfig)

@@ -23,7 +23,7 @@ class ChatSession(Base, TimestampMixin, TenantUserMixin):
     is_first_message: Mapped[bool] = mapped_column(Boolean, default=True)
 
     messages: Mapped[list["ChatMessage"]] = relationship(
-        back_populates="session", cascade="all, delete-orphan"
+        back_populates="session", cascade="all, delete-orphan", passive_deletes=True,
     )
 
     # Evaluation runs cascade from here
@@ -61,6 +61,12 @@ class ChatSession(Base, TimestampMixin, TenantUserMixin):
                 f"server_session_id IS DISTINCT FROM '{SHERLOCK_CHAT_SOURCE}'"
             ),
         ),
+        Index(
+            "idx_chat_sessions_title_trgm",
+            "title",
+            postgresql_using="gin",
+            postgresql_ops={"title": "gin_trgm_ops"},
+        ),
         {"schema": "platform"},
     )
 
@@ -87,5 +93,11 @@ class ChatMessage(Base, TenantUserMixin):
         Index("idx_chat_messages_tenant", "tenant_id"),
         Index("idx_chat_messages_tenant_user", "tenant_id", "user_id"),
         Index("idx_chat_messages_session_created", "session_id", "created_at"),
+        Index(
+            "idx_chat_messages_content_trgm",
+            "content",
+            postgresql_using="gin",
+            postgresql_ops={"content": "gin_trgm_ops"},
+        ),
         {"schema": "platform"},
     )

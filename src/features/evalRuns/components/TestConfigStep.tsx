@@ -41,6 +41,9 @@ import {
   WizardStepLayout,
 } from './WizardStepLayout';
 
+const WIZARD_TEXTAREA_CLASS =
+  'w-full border border-[var(--border-default)] bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50 resize-y';
+
 type FlowMode = 'single' | 'multi';
 export type AdversarialCaseMode = 'generate' | 'saved' | 'hybrid';
 export type ManualCaseDifficulty = 'EASY' | 'MEDIUM' | 'HARD';
@@ -621,7 +624,10 @@ export function TestConfigStep({
               onChange={(e) => onExtraInstructionsChange(e.target.value)}
               placeholder="e.g. Focus on Hindi food items, exercise correction flows, or stubborn users."
               rows={4}
-              className="mt-2.5 w-full rounded-[10px] border border-[var(--border-input)] bg-[var(--bg-primary)] px-3 py-2.5 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--interactive-primary)] resize-y"
+              className={cn(
+                WIZARD_TEXTAREA_CLASS,
+                'mt-2.5 rounded-[var(--radius-default)] py-2.5',
+              )}
             />
           </div>
         </WizardSection>
@@ -970,7 +976,7 @@ export function TestConfigStep({
               onChange={(e) => setDraft((current) => ({ ...current, syntheticInput: e.target.value }))}
               placeholder="The first message the simulated user sends to Kaira."
               rows={3}
-              className="w-full rounded-[6px] border border-[var(--border-input)] bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--interactive-primary)] resize-y"
+              className={cn(WIZARD_TEXTAREA_CLASS, 'rounded-[6px]')}
             />
           </div>
 
@@ -1020,7 +1026,7 @@ export function TestConfigStep({
                 onChange={(e) => setDraft((current) => ({ ...current, description: e.target.value }))}
                 placeholder="Explain what regression or edge case this protects."
                 rows={3}
-                className="w-full rounded-[6px] border border-[var(--border-input)] bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--interactive-primary)] resize-y"
+                className={cn(WIZARD_TEXTAREA_CLASS, 'rounded-[6px]')}
               />
             </div>
             <div>
@@ -1032,7 +1038,7 @@ export function TestConfigStep({
                 onChange={(e) => setDraftChallengesText(e.target.value)}
                 placeholder={'Bot should reject future time\nBot should ask a follow-up instead of guessing'}
                 rows={3}
-                className="w-full rounded-[6px] border border-[var(--border-input)] bg-[var(--bg-primary)] px-3 py-2 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--interactive-primary)] resize-y"
+                className={cn(WIZARD_TEXTAREA_CLASS, 'rounded-[6px]')}
               />
             </div>
           </div>

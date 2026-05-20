@@ -18,12 +18,14 @@ class ProviderDerivedPricing(TypedDict, total=False):
     reasoning_from_output: bool
 
 
-# models.dev source provider → (internal provider key, alias map for sub-providers)
-PROVIDER_MAP: dict[str, tuple[str, dict[str, str]]] = {
-    'google': ('gemini', {'vertex': 'gemini'}),
-    'openai': ('openai', {}),
-    'anthropic': ('anthropic', {}),
-    'azure': ('azure_openai', {}),
+# models.dev source provider id → internal provider key.
+PROVIDER_MAP: dict[str, str] = {
+    'google': 'gemini',
+    'google-vertex': 'vertex',
+    'openai': 'openai',
+    'anthropic': 'anthropic',
+    'azure': 'azure_openai',
+    'amazon-bedrock': 'bedrock',
 }
 
 ALLOWLIST: frozenset[str] = frozenset(PROVIDER_MAP.keys())
@@ -55,6 +57,20 @@ PROVIDER_DERIVED_PRICING: dict[str, ProviderDerivedPricing] = {
         'cache_write_1h_multiplier': Decimal('2.0'),
         'reasoning_from_output': True,
     },
+    'bedrock': {
+        # Bedrock-hosted Claude uses the same cost shape as direct Anthropic.
+        'cached_read_multiplier': Decimal('0.1'),
+        'cache_write_5m_multiplier': Decimal('1.25'),
+        'cache_write_1h_multiplier': Decimal('2.0'),
+        'reasoning_from_output': True,
+    },
+    'vertex': {
+        # Vertex-hosted Gemini matches Google AI Studio pricing semantics.
+        'cached_read_multiplier': Decimal('0.1'),
+        'cache_write_5m_multiplier': Decimal('0'),
+        'cache_write_1h_multiplier': Decimal('0'),
+        'reasoning_from_output': True,
+    },
 }
 
 
@@ -62,9 +78,11 @@ PROVIDER_DERIVED_PRICING: dict[str, ProviderDerivedPricing] = {
 # ``type(inner).__name__`` into the recorder's canonical provider key.
 PROVIDER_CLASS_KEYS: dict[str, str] = {
     'GeminiProvider': 'gemini',
+    'VertexProvider': 'vertex',
     'OpenAIProvider': 'openai',
     'AzureOpenAIProvider': 'azure_openai',
     'AnthropicProvider': 'anthropic',
+    'BedrockProvider': 'bedrock',
 }
 
 
@@ -109,4 +127,25 @@ def model_family_for(provider: str, model: str) -> str | None:
         if lowered.startswith('o'):
             return 'openai-reasoning'
         return 'openai'
+    if provider == 'vertex':
+        # Vertex hosts Gemini today; Anthropic-on-Vertex is recognized so future
+        # rows route to the right pricing/normalizer if/when we ship it.
+        if 'claude' in lowered:
+            return 'claude'
+        if '3.1' in lowered or 'gemini-3' in lowered:
+            return 'gemini-3'
+        if '2.5' in lowered:
+            return 'gemini-2.5'
+        if '2.0' in lowered:
+            return 'gemini-2.0'
+        return 'gemini'
+    if provider == 'bedrock':
+        # Bedrock hosts Anthropic Claude today.
+        if 'opus' in lowered:
+            return 'claude-opus'
+        if 'sonnet' in lowered:
+            return 'claude-sonnet'
+        if 'haiku' in lowered:
+            return 'claude-haiku'
+        return 'claude'
     return None

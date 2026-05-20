@@ -62,7 +62,7 @@ function lastOutcomeChip(r: RecipientState): OutcomeChip | null {
   if (POSITIVE_OUTCOMES.has(lower)) variant = 'success';
   else if (NEGATIVE_OUTCOMES.has(lower)) variant = 'error';
   else if (NEUTRAL_OUTCOMES.has(lower)) variant = 'warning';
-  else if (lower === 'wa_delivered' || lower === 'bolna_queued') variant = 'info';
+  else if (lower === 'wa_delivered' || lower === 'voice_queued') variant = 'info';
   return { label, variant, tooltip: label };
 }
 

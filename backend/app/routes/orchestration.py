@@ -28,6 +28,8 @@ from app.schemas.orchestration import (
     ActionResponse,
     ActionTemplateResponse,
     ActionTemplateUpsertRequest,
+    CancelAuditRead,
+    CancelRunRequest,
     CloneSystemWorkflowRequest,
     CohortSourceResponse,
     ConsentResponse,
@@ -41,6 +43,7 @@ from app.schemas.orchestration import (
     RunNodeStepResponse,
     RunOverlaySnapshotResponse,
     RunResponse,
+    TerminationReceipt,
     TriggerCreateRequest,
     TriggerUpdateRequest,
     TriggerResponse,
@@ -65,6 +68,7 @@ from app.services.orchestration.api import (
 )
 from app.services.orchestration.api.node_types import list_node_types
 from app.services.orchestration.api.source_catalog import list_cohort_sources
+from app.services.orchestration.cancel.run_terminator import terminate_run
 from app.services.orchestration.definition_validator import (
     DispatchRequiredFieldsError,
 )
@@ -752,17 +756,37 @@ async def get_run_action(
     return action
 
 
-@router.post("/runs/{run_id}/cancel", status_code=204)
+@router.post("/runs/{run_id}/cancel", response_model=TerminationReceipt)
 async def cancel_run(
     run_id: uuid.UUID,
+    body: CancelRunRequest = CancelRunRequest(),
     auth: AuthContext = require_permission('orchestration:manage'),
     db: AsyncSession = Depends(get_db),
-):
+) -> TerminationReceipt:
     run = await _load_and_gate_run(db, auth, run_id)
     await _load_and_gate_workflow(db, auth, run.workflow_id, action="edit")
-    if not await run_service.cancel_run(db, tenant_id=auth.tenant_id, run_id=run_id):
+    receipt = await terminate_run(
+        db, run_id=run_id, tenant_id=auth.tenant_id,
+        user_id=auth.user_id, reason=body.reason,
+    )
+    if receipt is None:
         raise HTTPException(status_code=404, detail="run not found")
-    return Response(status_code=204)
+    await db.commit()
+    return receipt
+
+
+@router.get("/runs/{run_id}/cancel-audits", response_model=list[CancelAuditRead])
+async def list_run_cancel_audits(
+    run_id: uuid.UUID,
+    auth: AuthContext = Depends(get_auth_context),
+    db: AsyncSession = Depends(get_db),
+):
+    """Provider-cancel outcomes written by finalize-run-cancel. The Stop receipt
+    panel polls this; rows appearing means the async finalize ran."""
+    await _load_and_gate_run(db, auth, run_id)
+    return await run_service.list_cancel_audits(
+        db, tenant_id=auth.tenant_id, run_id=run_id,
+    )
 
 
 @router.post(

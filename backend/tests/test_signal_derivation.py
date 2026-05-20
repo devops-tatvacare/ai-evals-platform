@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock
 from app.services.analytics.signal_derivation.base import StrategyContext
 from app.services.analytics.signal_derivation.definition_seed import (
     MQL_DEFINITION_BODY,
+    _SIGNAL_DEFINITION_SEEDS,
 )
 from app.services.analytics.signal_derivation.llm_profile_strategy import (
     LlmProfileStrategy,
@@ -84,6 +85,51 @@ class RuleStrategyValidationTests(unittest.TestCase):
                               "field": "a.b.c", "predicate": "in_set",
                               "args": {"values": []}}]}
             )
+
+    def test_seed_execution_modes_match_trigger_paths(self) -> None:
+        by_set = {seed["signal_set"]: seed for seed in _SIGNAL_DEFINITION_SEEDS}
+        self.assertEqual(by_set["mql"]["execution_mode"], "scheduled_scan")
+        self.assertEqual(
+            by_set["call_transcript_signals"]["execution_mode"],
+            "eval_run_projection",
+        )
+        self.assertEqual(
+            by_set["lead_profile_signals"]["execution_mode"],
+            "operator_backfill",
+        )
+
+    def test_scheduled_definition_query_filters_to_scheduled_scan(self) -> None:
+        from sqlalchemy.dialects import postgresql
+
+        from app.services.analytics.signal_derivation.orchestrator import (
+            _enabled_scheduled_definition_stmt,
+        )
+
+        compiled = str(
+            _enabled_scheduled_definition_stmt().compile(
+                dialect=postgresql.dialect(),
+                compile_kwargs={"literal_binds": True},
+            )
+        )
+        self.assertIn(
+            "analytics.signal_definition.execution_mode = 'scheduled_scan'",
+            compiled,
+        )
+
+    def test_admin_rejects_strategy_execution_mode_mismatch(self) -> None:
+        from fastapi import HTTPException
+
+        from app.routes.analytics_admin import _validate_execution_mode
+
+        _validate_execution_mode("rule", "scheduled_scan")
+        _validate_execution_mode("llm_transcript", "eval_run_projection")
+        _validate_execution_mode("llm_profile", "operator_backfill")
+
+        with self.assertRaises(HTTPException) as raised:
+            _validate_execution_mode("llm_profile", "scheduled_scan")
+
+        self.assertEqual(raised.exception.status_code, 422)
+        self.assertIn("operator_backfill", raised.exception.detail)
 
 
 class MqlBehaviourTests(unittest.IsolatedAsyncioTestCase):

@@ -1,15 +1,8 @@
 #!/bin/sh
 # Strict mode: any non-zero exit aborts boot. Without this, a failing
-# alembic upgrade or service-account decode would silently fall through
-# to uvicorn and serve traffic with broken state.
+# alembic upgrade would silently fall through to uvicorn and serve traffic
+# with broken state.
 set -e
-
-# Decode Gemini service account from env var (base64-encoded JSON) if provided.
-# This avoids mounting a JSON file on Azure App Service.
-if [ -n "$GEMINI_SERVICE_ACCOUNT_JSON" ]; then
-    echo "$GEMINI_SERVICE_ACCOUNT_JSON" | base64 -d > /app/service-account.json
-    export GEMINI_SERVICE_ACCOUNT_PATH=/app/service-account.json
-fi
 
 # Apply pending Alembic migrations before serving traffic. Defaults to "true"
 # so the image just works without per-environment env-var changes.

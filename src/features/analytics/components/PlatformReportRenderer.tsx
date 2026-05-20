@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { BarChart3, Loader2, RefreshCw, Sparkles } from 'lucide-react';
-import type { AppId, LLMProvider } from '@/types';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import type {
+  DataQualityReport,
   EntityTableBlock,
   FrictionAnalysisSection,
   HeatmapTableBlock,
@@ -11,7 +10,6 @@ import type {
   PlatformDocumentBlock,
   PlatformReportDocument,
   PlatformCrossRunNarrative,
-  PlatformCrossRunPayload,
   PlatformReportSection,
   RecommendationListBlock,
   StatGridBlock,
@@ -23,12 +21,7 @@ import type {
   ProseBlock,
   CoverBlock,
 } from '@/types/platformReports';
-import { Button, EmptyState, LLMConfigSection, LoadingState, PageSurface, Tabs } from '@/components/ui';
-import { usePageMetadata } from '@/config/pageMetadata';
-import { reportsApi } from '@/services/api/reportsApi';
-import { useCrossRunStore, hasProviderCredentials, LLM_PROVIDERS, useLLMSettingsStore } from '@/stores';
-import { notificationService } from '@/services/notifications';
-import { useAppConfig } from '@/hooks';
+import { Tabs } from '@/components/ui';
 import SectionHeader from '@/features/evalRuns/components/report/shared/SectionHeader';
 import CalloutBox from '@/features/evalRuns/components/report/shared/CalloutBox';
 import VerdictDistributions from '@/features/evalRuns/components/report/VerdictDistributions';
@@ -45,8 +38,21 @@ import {
   transformNarrative,
 } from '@/features/evalRuns/components/report/sectionTransforms';
 import type { ComplianceTableSection, DistributionChartSection, ExemplarsSection } from '@/types/platformReports';
-import { HeatmapTable } from '@/components/report/HeatmapTable';
-import type { HeatmapColumn, HeatmapRow } from '@/components/report/HeatmapTable';
+import { Heatmap, type HeatmapCell, type HeatmapColumn, type HeatmapRow, type HeatmapTier } from '@/components/report/Heatmap';
+import TrendChart from '@/components/report/TrendChart';
+import InsightPanelGrid from '@/components/report/InsightPanelGrid';
+import { parseImpactSegments } from '@/features/evalRuns/components/report/shared/colors';
+import {
+  KpiTile,
+  SectionEmpty,
+  SectionHeader as ReportSectionHeader,
+  SectionShell,
+  toneText,
+  toneRule,
+  toneSurface,
+  toneToCalloutVariant,
+  type ReportTone,
+} from './reportPrimitives';
 import { cn } from '@/utils/cn';
 
 /** Section types that render their own SectionHeader and layout — no outer box wrapper. */
@@ -59,6 +65,84 @@ const RICH_COMPONENT_IDS = new Set([
   'issues_recommendations',
   'entity_slices',
 ]);
+
+/**
+ * Phase 2 — partial-report banner.
+ *
+ * Older cached artifacts have no `dataQuality` key; absence is normalized to
+ * `overall: 'complete'` so the banner renders nothing for legacy reports. The
+ * print watermark CSS hook is stamped on the same root via `data-partial` for
+ * the PDF render path (see `report-print.css` `.report-partial-watermark`).
+ */
+const NARRATIVE_STATUS_COPY: Record<string, string> = {
+  disabled: 'AI narrative is turned off for this report.',
+  skipped_no_model: 'AI narrative was skipped — no model was available.',
+  failed: 'AI narrative failed to generate.',
+};
+
+function normalizeDataQuality(dq: DataQualityReport | undefined): DataQualityReport {
+  return dq ?? { overall: 'complete', missingInputs: [], sectionStatus: {} };
+}
+
+function DataQualityBanner({
+  report,
+  printMode,
+}: {
+  report: PlatformRunReportPayload;
+  printMode: boolean;
+}) {
+  const dq = normalizeDataQuality(report.dataQuality);
+  const narrativeStatus = report.metadata.narrativeStatus;
+  const narrativeMessage =
+    narrativeStatus && narrativeStatus !== 'completed'
+      ? NARRATIVE_STATUS_COPY[narrativeStatus]
+      : null;
+
+  const showBanner = dq.overall !== 'complete' || Boolean(narrativeMessage);
+  if (!showBanner) return null;
+
+  const missingCount = dq.missingInputs.length;
+  const droppedSections = Object.entries(dq.sectionStatus).filter(
+    ([, status]) => status === 'dropped_from_export' || status === 'empty',
+  );
+
+  const variant = dq.overall === 'degraded' ? 'danger' : 'warning';
+  const title =
+    dq.overall === 'degraded'
+      ? 'Report is degraded — multiple inputs are missing.'
+      : dq.overall === 'partial'
+        ? 'This report is partial.'
+        : 'AI narrative status';
+
+  return (
+    <div
+      className="report-partial-banner"
+      data-partial={dq.overall !== 'complete' ? 'true' : undefined}
+    >
+      {printMode && dq.overall !== 'complete' ? (
+        <div className="report-partial-watermark">PARTIAL</div>
+      ) : null}
+      <CalloutBox variant={variant} title={title}>
+        <div className="space-y-1">
+          {missingCount > 0 ? (
+            <div>
+              {missingCount} expected input{missingCount === 1 ? '' : 's'} missing
+              {missingCount <= 4 ? `: ${dq.missingInputs.join(', ')}` : '.'}
+            </div>
+          ) : null}
+          {droppedSections.length > 0 ? (
+            <div>
+              {droppedSections.length} section
+              {droppedSections.length === 1 ? '' : 's'} dropped or empty:{' '}
+              {droppedSections.map(([id]) => id).join(', ')}.
+            </div>
+          ) : null}
+          {narrativeMessage ? <div>{narrativeMessage}</div> : null}
+        </div>
+      </CalloutBox>
+    </div>
+  );
+}
 
 function normalizeTokenKey(key: string): string {
   return key.replace(/[_\s-]+/g, '').toLowerCase();
@@ -105,34 +189,20 @@ function buildReportPresentationStyle(report: PlatformRunReportPayload): CSSProp
   return style;
 }
 
-function toneClass(tone: string): string {
-  if (tone === 'positive' || tone === 'success') return 'text-[var(--color-success)]';
-  if (tone === 'warning') return 'text-[var(--color-warning)]';
-  if (tone === 'negative' || tone === 'danger' || tone === 'error') return 'text-[var(--color-error)]';
-  return 'text-[var(--text-secondary)]';
-}
+const BACKEND_TONE_TO_TIER: Record<string, HeatmapTier> = {
+  positive: 'great',
+  success: 'great',
+  warning: 'mid',
+  negative: 'critical',
+  danger: 'critical',
+  error: 'critical',
+  info: 'good',
+  neutral: 'neutral',
+};
 
-function calloutVariant(tone: string): 'info' | 'success' | 'warning' | 'danger' {
-  if (tone === 'positive' || tone === 'success') return 'success';
-  if (tone === 'warning') return 'warning';
-  if (tone === 'negative' || tone === 'danger' || tone === 'error') return 'danger';
-  return 'info';
-}
-
-function HeatCell({ tone, value }: { tone: string; value: number | null }) {
-  const bg =
-    tone === 'positive' || tone === 'success'
-      ? 'bg-emerald-500/15'
-      : tone === 'warning'
-        ? 'bg-amber-500/15'
-        : tone === 'negative' || tone === 'danger' || tone === 'error'
-          ? 'bg-rose-500/15'
-          : 'bg-[var(--bg-tertiary)]';
-  return (
-    <td className={cn('px-3 py-2 text-center text-xs border border-[var(--border-subtle)]', bg)}>
-      {value == null ? '—' : value}
-    </td>
-  );
+function tierFromTone(tone: string | null | undefined): HeatmapTier | null {
+  if (!tone) return null;
+  return BACKEND_TONE_TO_TIER[tone] ?? null;
 }
 
 function buildDocumentStyle(report: PlatformRunReportPayload): CSSProperties {
@@ -169,18 +239,12 @@ function getSectionComponentId(section: PlatformReportSection, presentationSecti
   return presentationSection?.componentId ?? section.type;
 }
 
-function blockToneClass(tone: string): string {
-  if (tone === 'positive' || tone === 'success') return 'text-emerald-700';
-  if (tone === 'warning') return 'text-amber-700';
-  if (tone === 'negative' || tone === 'danger' || tone === 'error') return 'text-rose-700';
-  return 'text-slate-600';
+function blockToneTextStyle(tone: ReportTone | null | undefined) {
+  return { color: toneText(tone) };
 }
 
-function blockToneSurface(tone: string): string {
-  if (tone === 'positive' || tone === 'success') return 'bg-emerald-50';
-  if (tone === 'warning') return 'bg-amber-50';
-  if (tone === 'negative' || tone === 'danger' || tone === 'error') return 'bg-rose-50';
-  return 'bg-slate-100';
+function blockToneSurfaceStyle(tone: ReportTone | null | undefined) {
+  return { backgroundColor: toneSurface(tone) };
 }
 
 function PreviewBlockTitle({ title }: { title?: string | null }) {
@@ -231,14 +295,14 @@ function ReportCoverBlockView({ block }: { block: CoverBlock }) {
 
 function ReportStatGridBlockView({ block }: { block: StatGridBlock }) {
   return (
-    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-white p-5 shadow-sm">
+    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
       <PreviewBlockTitle title={block.title} />
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {block.items.map((item, index) => (
           <div key={`${item.label}-${index}`} className="rounded-[18px] border border-[var(--report-doc-border)] bg-[var(--report-doc-background)] p-4">
             <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--report-doc-text-secondary)]">{item.label}</div>
-            <div className={`mt-2 text-[30px] font-semibold leading-none ${blockToneClass(item.tone)}`}>{item.value}</div>
-            <div className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${blockToneSurface(item.tone)} ${blockToneClass(item.tone)}`}>
+            <div className="mt-2 text-[30px] font-semibold leading-none tabular-nums" style={blockToneTextStyle(item.tone)}>{item.value}</div>
+            <div className="mt-3 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ ...blockToneSurfaceStyle(item.tone), ...blockToneTextStyle(item.tone) }}>
               {item.tone}
             </div>
           </div>
@@ -250,7 +314,7 @@ function ReportStatGridBlockView({ block }: { block: StatGridBlock }) {
 
 function ReportProseBlockView({ block }: { block: ProseBlock }) {
   return (
-    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-white p-5 shadow-sm">
+    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
       <PreviewBlockTitle title={block.title} />
       <div className="space-y-3 text-[15px] leading-7 text-[var(--report-doc-text-primary)]">
         {block.body.split('\n').filter((paragraph) => paragraph.trim()).map((paragraph, index) => (
@@ -263,7 +327,7 @@ function ReportProseBlockView({ block }: { block: ProseBlock }) {
 
 function ReportTableBlockView({ block }: { block: TableBlock | EntityTableBlock }) {
   return (
-    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-white p-5 shadow-sm">
+    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
       <PreviewBlockTitle title={block.title} />
       <div className="overflow-x-auto">
         <table className="min-w-full border-separate border-spacing-0">
@@ -272,9 +336,14 @@ function ReportTableBlockView({ block }: { block: TableBlock | EntityTableBlock 
               {block.columns.map((column) => (
                 <th
                   key={column.key}
-                  className={`border-b border-[var(--report-doc-border)] px-3 py-3 text-xs uppercase tracking-[0.16em] text-[var(--report-doc-text-secondary)] ${
-                    column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : 'text-left'
-                  }`}
+                  className={cn(
+                    'border-b border-[var(--report-doc-border)] px-3 py-3 text-xs uppercase tracking-[0.16em] text-[var(--report-doc-text-secondary)]',
+                    column.align === 'right'
+                      ? 'text-right'
+                      : column.align === 'center'
+                        ? 'text-center'
+                        : 'text-left',
+                  )}
                 >
                   {column.label}
                 </th>
@@ -287,9 +356,14 @@ function ReportTableBlockView({ block }: { block: TableBlock | EntityTableBlock 
                 {block.columns.map((column) => (
                   <td
                     key={column.key}
-                    className={`border-b border-[var(--report-doc-border)] px-3 py-3 text-sm text-[var(--report-doc-text-primary)] ${
-                      column.align === 'right' ? 'text-right' : column.align === 'center' ? 'text-center' : 'text-left'
-                    }`}
+                    className={cn(
+                      'border-b border-[var(--report-doc-border)] px-3 py-3 text-sm tabular-nums text-[var(--report-doc-text-primary)]',
+                      column.align === 'right'
+                        ? 'text-right'
+                        : column.align === 'center'
+                          ? 'text-center'
+                          : 'text-left',
+                    )}
                   >
                     {row[column.key] == null ? '—' : String(row[column.key])}
                   </td>
@@ -304,73 +378,42 @@ function ReportTableBlockView({ block }: { block: TableBlock | EntityTableBlock 
 }
 
 function ReportHeatmapBlockView({ block }: { block: HeatmapTableBlock }) {
+  const columns: HeatmapColumn[] = block.columns.map((label, idx) => ({ id: `${label}-${idx}`, label }));
+  const rows: HeatmapRow[] = block.rows.map((row, rowIdx) => ({
+    id: `${row.label}-${rowIdx}`,
+    label: row.label,
+    cells: row.cells.map((cell): HeatmapCell => ({
+      value: cell.value,
+      tier: tierFromTone(cell.tone),
+      display: cell.value == null ? '—' : String(cell.value),
+    })),
+  }));
   return (
-    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-white p-5 shadow-sm">
+    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
       <PreviewBlockTitle title={block.title} />
-      <div className="overflow-x-auto">
-        <table className="min-w-full border-separate border-spacing-0">
-          <thead>
-            <tr>
-              <th className="border-b border-[var(--report-doc-border)] px-3 py-3 text-left text-xs uppercase tracking-[0.16em] text-[var(--report-doc-text-secondary)]">
-                Metric
-              </th>
-              {block.columns.map((column) => (
-                <th key={column} className="border-b border-[var(--report-doc-border)] px-3 py-3 text-center text-xs uppercase tracking-[0.16em] text-[var(--report-doc-text-secondary)]">
-                  {column}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {block.rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
-                <td className="border-b border-[var(--report-doc-border)] px-3 py-3 text-sm font-medium text-[var(--report-doc-text-primary)]">
-                  {row.label}
-                </td>
-                {row.cells.map((cell, cellIndex) => (
-                  <td
-                    key={`${row.label}-${cellIndex}`}
-                    className={`border-b border-[var(--report-doc-border)] px-3 py-3 text-center text-sm ${blockToneSurface(cell.tone)} ${blockToneClass(cell.tone)}`}
-                  >
-                    {cell.value == null ? '—' : cell.value}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Heatmap columns={columns} rows={rows} rowHeaderLabel="Metric" />
     </section>
   );
 }
 
 function ReportMetricBarBlockView({ block }: { block: MetricBarListBlock }) {
   return (
-    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-white p-5 shadow-sm">
+    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
       <PreviewBlockTitle title={block.title} />
       <div className="space-y-4">
         {block.items.map((item, index) => {
           const percent = item.maxValue > 0 ? Math.min(Math.max((item.value / item.maxValue) * 100, 0), 100) : 0;
+          const fillColor = toneRule(item.tone) ?? 'var(--report-doc-accent)';
           return (
             <div key={`${item.label}-${index}`}>
               <div className="mb-2 flex items-center justify-between gap-3 text-sm">
                 <span className="text-[var(--report-doc-text-secondary)]">{item.label}</span>
-                <span className={`font-semibold ${blockToneClass(item.tone)}`}>{item.value}</span>
+                <span className="font-semibold tabular-nums" style={blockToneTextStyle(item.tone)}>{item.value}</span>
               </div>
-              <div className="h-2.5 rounded-full bg-slate-200">
+              <div className="h-1.5 rounded-full bg-[var(--bg-tertiary)]">
                 <div
-                  className="h-2.5 rounded-full"
-                  style={{
-                    width: `${percent}%`,
-                    backgroundColor:
-                      item.tone === 'positive' || item.tone === 'success'
-                        ? 'var(--color-success)'
-                        : item.tone === 'warning'
-                          ? 'var(--color-warning)'
-                          : item.tone === 'negative' || item.tone === 'danger' || item.tone === 'error'
-                            ? 'var(--color-error)'
-                            : 'var(--report-doc-accent)',
-                  }}
+                  className="h-1.5 rounded-full"
+                  style={{ width: `${percent}%`, backgroundColor: fillColor }}
                 />
               </div>
             </div>
@@ -383,7 +426,7 @@ function ReportMetricBarBlockView({ block }: { block: MetricBarListBlock }) {
 
 function ReportRecommendationListBlockView({ block }: { block: RecommendationListBlock }) {
   return (
-    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-white p-5 shadow-sm">
+    <section className="rounded-[22px] border border-[var(--report-doc-border)] bg-[var(--bg-elevated)] p-5 shadow-sm">
       <PreviewBlockTitle title={block.title} />
       <div className="grid gap-3">
         {block.items.map((item, index) => (
@@ -475,14 +518,19 @@ function SectionContent({
 
   if (componentId === 'summary_cards') {
     const summarySection = section as SummaryCardsSection;
+    if (summarySection.data.length === 0) {
+      return <SectionEmpty title="No KPIs reported" description="The producer did not emit any summary cards." />;
+    }
     return (
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
         {summarySection.data.map((item) => (
-          <div key={item.key} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-            <div className="text-xs uppercase tracking-wide text-[var(--text-muted)]">{item.label}</div>
-            <div className={cn('mt-2 text-2xl font-bold', toneClass(item.tone))}>{item.value}</div>
-            {item.subtitle && <div className="mt-1 text-xs text-[var(--text-muted)]">{item.subtitle}</div>}
-          </div>
+          <KpiTile
+            key={item.key}
+            label={item.label}
+            value={item.value}
+            subtitle={item.subtitle}
+            tone={item.tone as ReportTone}
+          />
         ))}
       </div>
     );
@@ -492,81 +540,89 @@ function SectionContent({
     const narrative = (section as NarrativeSection).data as PlatformRunNarrative | PlatformCrossRunNarrative;
     return (
       <div className="space-y-4">
-        <CalloutBox variant="insight" title="Executive Summary">
-          {narrative.executiveSummary}
-        </CalloutBox>
-        {'trendAnalysis' in narrative && narrative.trendAnalysis && (
-          <CalloutBox variant="info" title="Trend Analysis">
-            {narrative.trendAnalysis}
-          </CalloutBox>
-        )}
-        {'issues' in narrative && narrative.issues.length > 0 && (
+        {narrative.executiveSummary ? (
+          <SectionShell tone="info">
+            <ReportSectionHeader kicker="Executive summary" title="Headline" />
+            <p className="text-sm leading-relaxed text-[var(--text-primary)]">{narrative.executiveSummary}</p>
+          </SectionShell>
+        ) : null}
+        {'trendAnalysis' in narrative && narrative.trendAnalysis ? (
+          <SectionShell tone="info">
+            <ReportSectionHeader kicker="Trend" title="Trend analysis" />
+            <p className="text-sm leading-relaxed text-[var(--text-primary)]">{narrative.trendAnalysis}</p>
+          </SectionShell>
+        ) : null}
+        {'issues' in narrative && narrative.issues.length > 0 ? (
           <div className="grid gap-3 md:grid-cols-2">
-            {narrative.issues.map((issue) => (
-              <div key={`${issue.area}-${issue.title}`} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                <div className="text-xs uppercase tracking-wide text-[var(--text-muted)]">{issue.area}</div>
-                <div className="mt-1 font-semibold text-[var(--text-primary)]">{issue.title}</div>
-                <div className="mt-2 text-sm text-[var(--text-secondary)]">{issue.summary}</div>
-              </div>
-            ))}
+            {narrative.issues.map((issue) => {
+              const severity = ('severity' in issue ? issue.severity : null) as ReportTone | null;
+              return (
+                <SectionShell key={`${issue.area}-${issue.title}`} tone={severity ?? 'warning'}>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">{issue.area}</div>
+                  <div className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{issue.title}</div>
+                  <div className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">{issue.summary}</div>
+                </SectionShell>
+              );
+            })}
           </div>
-        )}
-        {'recommendations' in narrative && narrative.recommendations.length > 0 && (
-          <div className="space-y-3">
+        ) : null}
+        {'recommendations' in narrative && narrative.recommendations.length > 0 ? (
+          <div className="space-y-2">
             {narrative.recommendations.map((item, index) => {
               const rationale = 'rationale' in item && typeof item.rationale === 'string' ? item.rationale : null;
               const expectedImpact = 'expectedImpact' in item && typeof item.expectedImpact === 'string' ? item.expectedImpact : null;
               return (
-                <div key={`${item.priority}-${index}`} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                  <div className="text-xs uppercase tracking-wide text-[var(--text-muted)]">{item.priority}</div>
-                  <div className="mt-1 text-sm text-[var(--text-primary)]">{item.action}</div>
-                  {rationale && <div className="mt-1 text-sm text-[var(--text-secondary)]">{rationale}</div>}
-                  {expectedImpact && <div className="mt-1 text-sm text-[var(--text-secondary)]">{expectedImpact}</div>}
-                </div>
+                <SectionShell key={`${item.priority}-${index}`} tone="info">
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                      style={{ backgroundColor: toneSurface('info'), color: toneText('info') }}
+                    >
+                      {item.priority}
+                    </span>
+                    <span className="text-sm font-medium text-[var(--text-primary)]">{item.action}</span>
+                  </div>
+                  {rationale ? <div className="mt-1 text-xs text-[var(--text-secondary)]">{rationale}</div> : null}
+                  {expectedImpact ? <div className="mt-1 text-xs text-[var(--text-secondary)]">{expectedImpact}</div> : null}
+                </SectionShell>
               );
             })}
           </div>
-        )}
-        {'criticalPatterns' in narrative && narrative.criticalPatterns.length > 0 && (
-          <div className="space-y-3">
+        ) : null}
+        {'criticalPatterns' in narrative && narrative.criticalPatterns.length > 0 ? (
+          <div className="space-y-2">
             {narrative.criticalPatterns.map((item, index) => (
-              <div key={`${item.title}-${index}`} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-                <div className="font-semibold text-[var(--text-primary)]">{item.title}</div>
-                <div className="mt-1 text-sm text-[var(--text-secondary)]">{item.summary}</div>
-              </div>
+              <SectionShell key={`${item.title}-${index}`} tone="warning">
+                <div className="text-sm font-semibold text-[var(--text-primary)]">{item.title}</div>
+                <div className="mt-1 text-xs text-[var(--text-secondary)]">{item.summary}</div>
+              </SectionShell>
             ))}
           </div>
-        )}
+        ) : null}
       </div>
     );
   }
 
   if (componentId === 'metric_breakdown') {
     const metricSection = section as MetricBreakdownSection;
+    if (metricSection.data.length === 0) {
+      return <SectionEmpty title="No metrics" description="The producer did not emit any metrics for this section." />;
+    }
     return (
       <div className="space-y-3">
         {metricSection.data.map((item) => {
           const percent = item.maxValue > 0 ? Math.min(Math.max((item.value / item.maxValue) * 100, 0), 100) : 0;
+          const fill = toneRule(item.tone) ?? 'var(--color-info)';
           return (
             <div key={item.key}>
               <div className="mb-1 flex items-center justify-between text-sm">
                 <span className="text-[var(--text-secondary)]">{item.label}</span>
-                <span className={toneClass(item.tone)}>{item.value.toFixed(1)}{item.unit ?? ''}</span>
+                <span className="tabular-nums" style={{ color: toneText(item.tone) }}>
+                  {item.value.toFixed(1)}{item.unit ?? ''}
+                </span>
               </div>
-              <div className="h-2 rounded-full bg-[var(--bg-tertiary)]">
-                <div
-                  className={cn(
-                    'h-2 rounded-full',
-                    item.tone === 'positive' || item.tone === 'success'
-                      ? 'bg-emerald-500'
-                      : item.tone === 'warning'
-                        ? 'bg-amber-500'
-                        : item.tone === 'negative' || item.tone === 'danger' || item.tone === 'error'
-                          ? 'bg-rose-500'
-                          : 'bg-[var(--color-info)]',
-                  )}
-                  style={{ width: `${percent}%` }}
-                />
+              <div className="h-1.5 rounded-full bg-[var(--bg-tertiary)] overflow-hidden">
+                <div className="h-full rounded-full transition-[width]" style={{ width: `${percent}%`, backgroundColor: fill }} />
               </div>
             </div>
           );
@@ -597,112 +653,84 @@ function SectionContent({
 
   if (componentId === 'heatmap') {
     const heatmapSection = section as Extract<PlatformReportSection, { type: 'heatmap' }>;
-    return (
-      <div className="overflow-x-auto rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)]">
-        <table className="min-w-full">
-          <thead>
-            <tr>
-              <th className="px-3 py-2 text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">Metric</th>
-               {heatmapSection.data.columns.map((column) => (
-                <th key={column} className="px-3 py-2 text-center text-xs uppercase tracking-wide text-[var(--text-muted)]">{column}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-             {heatmapSection.data.rows.map((row) => (
-              <tr key={row.key}>
-                <td className="px-3 py-2 text-sm text-[var(--text-primary)] border border-[var(--border-subtle)]">{row.label}</td>
-                {row.cells.map((cell, index) => (
-                  <HeatCell key={`${row.key}-${index}`} tone={cell.tone} value={cell.value} />
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
+    const { columns: cols, rows: heatRows } = heatmapSection.data;
+    const columns: HeatmapColumn[] = cols.map((label, idx) => ({ id: `${label}-${idx}`, label }));
+    const rows: HeatmapRow[] = heatRows.map((row) => ({
+      id: row.key,
+      label: row.label,
+      cells: row.cells.map((cell): HeatmapCell => ({
+        value: cell.value,
+        tier: tierFromTone(cell.tone),
+        display: cell.value == null ? '—' : String(cell.value),
+        subtitle: cell.subtitle,
+      })),
+    }));
+    return <Heatmap columns={columns} rows={rows} rowHeaderLabel="Metric" />;
   }
 
   if (componentId === 'entity_slices') {
     const entitySection = section as Extract<PlatformReportSection, { type: 'entity_slices' }>;
     const items = entitySection.data;
-    const hasDetails = items.some((item) => item.details && Object.keys(item.details).length > 0);
-
-    if (hasDetails && items.length > 0) {
-      const detailKeys = Array.from(
-        new Set(items.flatMap((item) => Object.keys(item.details ?? {}))),
-      );
-      const columns: HeatmapColumn[] = detailKeys.map((key) => ({
-        key,
-        label: key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-        shortLabel: key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).slice(0, 10),
-        max: 100,
-        greenThreshold: 80,
-        yellowThreshold: 65,
-      }));
-      const rows: HeatmapRow[] = items.map((item) => ({
-        id: item.entityId,
-        label: item.label,
-        extraColumns: Object.entries(item.summary).map(([key, value]) => ({
-          label: key.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()).trim(),
-          value: typeof value === 'number' ? (Number.isInteger(value) ? value : value.toFixed(1)) : String(value),
-          className: key.toLowerCase().includes('score') || key.toLowerCase().includes('avg')
-            ? cn('font-bold', typeof value === 'number' && value >= 80 ? 'text-[var(--color-success)]' : typeof value === 'number' && value >= 65 ? 'text-[var(--color-warning)]' : typeof value === 'number' ? 'text-[var(--color-error)]' : '')
-            : undefined,
-        })),
-      }));
-      const cells: Record<string, Record<string, number>> = {};
-      for (const item of items) {
-        cells[item.entityId] = {};
-        for (const key of detailKeys) {
-          const val = item.details?.[key];
-          cells[item.entityId][key] = typeof val === 'number' ? val : 0;
-        }
-      }
-      return <HeatmapTable rows={rows} columns={columns} cells={cells} />;
+    if (items.length === 0) {
+      return <SectionEmpty title="No entities" description="The producer did not emit any entity rows for this section." />;
     }
-
     return (
       <div className="grid gap-3 md:grid-cols-2">
-        {items.map((item) => (
-          <div key={item.entityId} className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-secondary)] p-4">
-            <div className="font-semibold text-[var(--text-primary)]">{item.label}</div>
-            <dl className="mt-3 space-y-1">
-              {Object.entries(item.summary).map(([key, value]) => (
-                <div key={key} className="flex items-center justify-between gap-4 text-sm">
-                  <dt className="text-[var(--text-muted)]">{key}</dt>
-                  <dd className="text-[var(--text-primary)]">{String(value)}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        ))}
+        {items.map((item) => {
+          const detailEntries = Object.entries(item.details ?? {});
+          return (
+            <SectionShell key={item.entityId}>
+              <div className="text-sm font-semibold text-[var(--text-primary)]">{item.label}</div>
+              <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                {Object.entries(item.summary).map(([key, value]) => (
+                  <div key={key} className="flex items-baseline justify-between gap-2 text-xs">
+                    <dt className="text-[var(--text-muted)] truncate">{key.replace(/_/g, ' ')}</dt>
+                    <dd className="font-medium tabular-nums text-[var(--text-primary)]">{String(value)}</dd>
+                  </div>
+                ))}
+              </dl>
+              {detailEntries.length > 0 ? (
+                <dl className="mt-3 border-t border-[var(--border-subtle)] pt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                  {detailEntries.map(([key, value]) => (
+                    <div key={key} className="flex items-baseline justify-between gap-2 text-xs">
+                      <dt className="text-[var(--text-muted)] truncate">{key.replace(/_/g, ' ')}</dt>
+                      <dd className="font-medium tabular-nums text-[var(--text-secondary)]">{String(value ?? '—')}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : null}
+            </SectionShell>
+          );
+        })}
       </div>
     );
   }
 
   if (componentId === 'flags') {
     const flagsSection = section as Extract<PlatformReportSection, { type: 'flags' }>;
+    if (flagsSection.data.length === 0) {
+      return <SectionEmpty title="No flags" description="No behavioural flags were recorded for this run." />;
+    }
     return (
-      <div className="overflow-x-auto rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)]">
+      <div className="overflow-x-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-primary)]">
         <table className="min-w-full text-sm">
-          <thead>
-            <tr className="border-b border-[var(--border-subtle)]">
-              <th className="px-4 py-3 text-left text-xs uppercase tracking-wide text-[var(--text-muted)]">Flag</th>
-              <th className="px-4 py-3 text-right text-xs uppercase tracking-wide text-[var(--text-muted)]">Relevant</th>
-              <th className="px-4 py-3 text-right text-xs uppercase tracking-wide text-[var(--text-muted)]">Present</th>
-              <th className="px-4 py-3 text-right text-xs uppercase tracking-wide text-[var(--text-muted)]">Attempted</th>
-              <th className="px-4 py-3 text-right text-xs uppercase tracking-wide text-[var(--text-muted)]">Accepted</th>
+          <thead className="bg-[var(--bg-secondary)]">
+            <tr>
+              <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">Flag</th>
+              <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">Relevant</th>
+              <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">Present</th>
+              <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">Attempted</th>
+              <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">Accepted</th>
             </tr>
           </thead>
           <tbody>
-            {flagsSection.data.map((item) => (
-              <tr key={item.key} className="border-b border-[var(--border-subtle)] last:border-b-0">
-                <td className="px-4 py-3 text-[var(--text-primary)]">{item.label}</td>
-                <td className="px-4 py-3 text-right text-[var(--text-secondary)]">{item.relevant}</td>
-                <td className="px-4 py-3 text-right text-[var(--text-secondary)]">{item.present}</td>
-                <td className="px-4 py-3 text-right text-[var(--text-secondary)]">{item.attempted ?? '—'}</td>
-                <td className="px-4 py-3 text-right text-[var(--text-secondary)]">{item.accepted ?? '—'}</td>
+            {flagsSection.data.map((item, idx) => (
+              <tr key={item.key} className={cn('border-t border-[var(--border-subtle)]', idx === 0 && 'border-t-0')}>
+                <td className="px-3 py-2 text-[var(--text-primary)]">{item.label}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-[var(--text-secondary)]">{item.relevant}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-[var(--text-secondary)]">{item.present}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-[var(--text-secondary)]">{item.attempted ?? '—'}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-[var(--text-secondary)]">{item.accepted ?? '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -745,22 +773,61 @@ function SectionContent({
   if (componentId === 'callout') {
     const calloutSection = section as Extract<PlatformReportSection, { type: 'callout' }>;
     return (
-      <CalloutBox variant={calloutVariant(calloutSection.data.tone)} title={section.title}>
+      <CalloutBox variant={toneToCalloutVariant(calloutSection.data.tone)} title={section.title}>
         {calloutSection.data.message}
       </CalloutBox>
+    );
+  }
+
+  if (componentId === 'trend_chart') {
+    const trendSection = section as Extract<PlatformReportSection, { type: 'trend_chart' }>;
+    const { points, primaryLabel, primaryColor, breakdowns, yDomain, referenceValue, referenceLabel } = trendSection.data;
+    if (points.length === 0) {
+      return <SectionEmpty title="No trend data" description="No runs with usable trend data were found." />;
+    }
+    return (
+      <TrendChart
+        points={points.map((p) => ({
+          bucket: p.bucket,
+          hoverLabel: p.hoverLabel ?? undefined,
+          primary: p.primary,
+          breakdown: p.breakdown,
+        }))}
+        primaryLabel={primaryLabel}
+        primaryColor={primaryColor ?? undefined}
+        breakdowns={breakdowns}
+        yDomain={yDomain}
+        referenceValue={referenceValue ?? undefined}
+        referenceLabel={referenceLabel ?? undefined}
+      />
+    );
+  }
+
+  if (componentId === 'insight_panels') {
+    const panelsSection = section as Extract<PlatformReportSection, { type: 'insight_panels' }>;
+    if (panelsSection.data.length === 0) {
+      return <SectionEmpty title="No insights" description="No aggregated insights were produced for this section." />;
+    }
+    return (
+      <InsightPanelGrid
+        panels={panelsSection.data.map((panel) => ({
+          area: panel.area,
+          priority: panel.priority,
+          runCount: panel.runCount,
+          items: panel.items.map((item) => ({
+            text: item.text,
+            impacts: item.impacts.flatMap(parseImpactSegments),
+          })),
+          stats: panel.stats,
+          footerImpacts: panel.footerImpacts.flatMap(parseImpactSegments),
+        }))}
+      />
     );
   }
 
   return null;
 }
 
-
-function metricBarTone(tone: string): string {
-  if (tone === 'positive' || tone === 'success') return 'var(--color-success)';
-  if (tone === 'warning') return 'var(--color-warning)';
-  if (tone === 'negative' || tone === 'danger' || tone === 'error') return 'var(--color-error)';
-  return 'var(--color-brand-accent)';
-}
 
 const LEGACY_SUMMARY_COMPONENT_IDS = new Set([
   'summary_cards',
@@ -842,17 +909,20 @@ function SummarySectionContent({
 
   if (componentId === 'metric_breakdown') {
     const metricSection = section as MetricBreakdownSection;
+    if (metricSection.data.length === 0) {
+      return <SectionEmpty title="No metrics" description="The producer did not emit any metrics for this section." />;
+    }
     return (
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {metricSection.data.map((metric) => {
           const pct = metric.maxValue > 0 ? Math.round((metric.value / metric.maxValue) * 100) : 0;
-          const color = metricBarTone(metric.tone);
+          const fill = toneRule(metric.tone) ?? 'var(--color-brand-accent)';
           return (
             <div key={metric.key}>
-              <div className="text-xs text-[var(--text-muted)] mb-1">{metric.label}</div>
-              <div className="text-xl font-bold" style={{ color }}>{pct}%</div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">{metric.label}</div>
+              <div className="mt-1 text-[20px] font-semibold tabular-nums leading-tight" style={{ color: toneText(metric.tone) }}>{pct}%</div>
               <div className="mt-2 h-1.5 rounded-full bg-[var(--bg-tertiary)] overflow-hidden">
-                <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+                <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: fill }} />
               </div>
             </div>
           );
@@ -864,49 +934,55 @@ function SummarySectionContent({
   if (componentId === 'narrative') {
     const narrativeData = (section as NarrativeSection).data as PlatformRunNarrative | undefined;
     return narrativeData?.executiveSummary ? (
-      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-4 py-3">
-        <p className="text-sm leading-relaxed text-[var(--text-secondary)]">{narrativeData.executiveSummary}</p>
-      </div>
+      <SectionShell tone="info" bodyClassName="px-4 py-3">
+        <p className="text-sm leading-relaxed text-[var(--text-primary)]">{narrativeData.executiveSummary}</p>
+      </SectionShell>
     ) : (
-      <p className="text-sm italic text-[var(--text-muted)]">AI narrative was not generated for this report.</p>
+      <SectionEmpty title="AI narrative was not generated" description="No model was available, or narrative was disabled for this report." />
     );
   }
 
   if (componentId === 'issues_recommendations') {
     const narrative = report ? transformNarrative(report) : null;
+    const topIssues = narrative?.topIssues ?? [];
     return (
-      <div className="space-y-6">
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Top Issues</h3>
-          {narrative?.topIssues && narrative.topIssues.length > 0 ? (
-            <div className="overflow-x-auto rounded border border-[var(--border-subtle)]">
+      <div className="space-y-5">
+        <div className="space-y-2">
+          <ReportSectionHeader kicker="Top issues" title="Most impactful problems" />
+          {topIssues.length > 0 ? (
+            <div className="overflow-x-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-primary)]">
               <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b-2 border-[var(--border-subtle)]">
-                    <th style={{ width: 12 }} className="px-2 py-1.5" />
-                    <th className="text-left px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Issue</th>
-                    <th className="text-left px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Focus Area</th>
-                    <th className="text-right px-2 py-1.5 text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">Affected</th>
+                <thead className="bg-[var(--bg-secondary)]">
+                  <tr>
+                    <th className="w-3 px-2 py-2" />
+                    <th className="text-left px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">Issue</th>
+                    <th className="text-left px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">Focus area</th>
+                    <th className="text-right px-2 py-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">Affected</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {narrative.topIssues.slice(0, 5).map((issue, i) => (
-                    <tr key={issue.rank} className={i % 2 === 0 ? 'bg-[var(--bg-primary)]' : 'bg-[var(--bg-secondary)]'}>
-                      <td className="px-2 py-2 align-top"><span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: i < 2 ? 'var(--color-error)' : i < 4 ? 'var(--color-warning)' : 'var(--color-info)' }} /></td>
-                      <td className="px-2 py-2 align-top font-medium text-[var(--text-primary)]">{issue.description}</td>
-                      <td className="px-2 py-2 align-top whitespace-nowrap text-[var(--text-muted)]">{issue.area}</td>
-                      <td className="px-2 py-2 align-top text-right text-[var(--text-muted)]">{issue.affectedCount}</td>
-                    </tr>
-                  ))}
+                  {topIssues.slice(0, 5).map((issue, i) => {
+                    const dotTone: ReportTone = i < 2 ? 'error' : i < 4 ? 'warning' : 'info';
+                    return (
+                      <tr key={issue.rank} className="border-t border-[var(--border-subtle)]">
+                        <td className="px-2 py-2 align-top">
+                          <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: toneText(dotTone) }} />
+                        </td>
+                        <td className="px-2 py-2 align-top font-medium text-[var(--text-primary)]">{issue.description}</td>
+                        <td className="px-2 py-2 align-top text-[var(--text-secondary)] whitespace-nowrap">{issue.area}</td>
+                        <td className="px-2 py-2 align-top text-right tabular-nums text-[var(--text-secondary)]">{issue.affectedCount}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           ) : (
-            <CalloutBox variant="info">No issue narratives are available for this run.</CalloutBox>
+            <SectionEmpty title="No issue narratives" description="No issue narratives are available for this run." />
           )}
         </div>
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Top Recommendations</h3>
+        <div className="space-y-2">
+          <ReportSectionHeader kicker="Top recommendations" title="What to do next" />
           <Recommendations narrative={narrative} />
         </div>
       </div>
@@ -961,13 +1037,7 @@ export function PlatformReportView({ report, actions, printMode = false }: Platf
   const detailedSections = getSectionsForTab(report, 'detailed');
   const presentationSectionMap = getPresentationSectionMap(report);
 
-  const gradeColor = primaryCard?.tone === 'positive' || primaryCard?.tone === 'success'
-    ? 'var(--color-success)'
-    : primaryCard?.tone === 'warning'
-      ? 'var(--color-warning)'
-      : primaryCard?.tone === 'negative' || primaryCard?.tone === 'danger' || primaryCard?.tone === 'error'
-        ? 'var(--color-error)'
-        : 'var(--text-muted)';
+  const gradeColor = primaryCard ? (toneRule(primaryCard.tone) ?? 'var(--text-muted)') : 'var(--text-muted)';
 
   const headerCard = (
     <div className="flex flex-wrap items-center gap-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-4 py-3">
@@ -1017,7 +1087,7 @@ export function PlatformReportView({ report, actions, printMode = false }: Platf
     : detailedSections;
 
   const detailedSectionList = (
-    <div className="space-y-8">
+    <div className={cn('space-y-8', printMode && 'space-y-5')}>
       {detailedSectionsToRender.map((section) => {
         const pSection = presentationSectionMap.get(section.id);
         const cId = getSectionComponentId(section, pSection);
@@ -1030,7 +1100,7 @@ export function PlatformReportView({ report, actions, printMode = false }: Platf
             <SectionContent section={section} presentationSection={pSection} report={report} printMode={printMode} />
           </div>
         ) : (
-          <section key={section.id} className="space-y-4 break-inside-avoid">
+          <section key={section.id} className={cn('break-inside-avoid', printMode ? 'space-y-2' : 'space-y-4')}>
             <SectionHeader title={section.title} description={section.description ?? undefined} />
             <SectionContent section={section} presentationSection={pSection} report={report} printMode={printMode} />
           </section>
@@ -1042,6 +1112,7 @@ export function PlatformReportView({ report, actions, printMode = false }: Platf
   if (printMode) {
     return (
       <div className="space-y-6" style={buildReportPresentationStyle(report)}>
+        <DataQualityBanner report={report} printMode />
         {headerCard}
         {hasRenderableSections
           ? detailedSectionList
@@ -1054,6 +1125,7 @@ export function PlatformReportView({ report, actions, printMode = false }: Platf
 
   return (
     <div className="space-y-6" style={buildReportPresentationStyle(report)}>
+      <DataQualityBanner report={report} printMode={false} />
       {headerCard}
 
       {hasRenderableSections ? (
@@ -1094,170 +1166,3 @@ export function PlatformReportView({ report, actions, printMode = false }: Platf
   );
 }
 
-function CrossRunSummaryCard({ summary }: { summary: PlatformCrossRunNarrative }) {
-  return (
-    <div className="space-y-3">
-      <CalloutBox variant="insight" title="AI Cross-Run Summary">
-        {summary.executiveSummary}
-      </CalloutBox>
-      {summary.trendAnalysis && (
-        <CalloutBox variant="info" title="Trend Analysis">
-          {summary.trendAnalysis}
-        </CalloutBox>
-      )}
-      {summary.criticalPatterns.length > 0 && (
-        <div className="grid gap-3 md:grid-cols-2">
-          {summary.criticalPatterns.map((item, index) => (
-            <div key={`${item.title}-${index}`} className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] p-4">
-              <div className="font-semibold text-[var(--text-primary)]">{item.title}</div>
-              <div className="mt-1 text-sm text-[var(--text-secondary)]">{item.summary}</div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function PlatformCrossRunDashboard({ appId }: { appId: AppId }) {
-  const appConfig = useAppConfig(appId);
-  const { icon: pageIcon, title: pageTitle } = usePageMetadata('dashboard');
-  const loadAnalytics = useCrossRunStore((s) => s.loadAnalytics);
-  const refreshAnalytics = useCrossRunStore((s) => s.refreshAnalytics);
-  const entry = useCrossRunStore((s) => s.entries[appId]);
-  const analytics = entry?.data as PlatformCrossRunPayload | null | undefined;
-
-  const [summary, setSummary] = useState<PlatformCrossRunNarrative | null>(null);
-  const [generatingSummary, setGeneratingSummary] = useState(false);
-  const [showModelPicker, setShowModelPicker] = useState(false);
-  const pickerRef = useRef<HTMLDivElement>(null);
-  const [provider, setProvider] = useState<LLMProvider>(LLM_PROVIDERS[0].value);
-  const [model, setModel] = useState('');
-
-  const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
-  const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
-  const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
-  const azureEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
-  const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
-  const saConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
-
-  const credentialsReady = hasProviderCredentials(provider, {
-    geminiApiKey,
-    openaiApiKey,
-    azureOpenaiApiKey: azureApiKey,
-    azureOpenaiEndpoint: azureEndpoint,
-    anthropicApiKey,
-    _serviceAccountConfigured: saConfigured,
-  });
-
-  useEffect(() => {
-    void loadAnalytics(appId);
-  }, [appId, loadAnalytics]);
-
-  useEffect(() => {
-    if (!showModelPicker) return;
-    const handleClick = (event: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
-        setShowModelPicker(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [showModelPicker]);
-
-  const headerActions = useMemo(() => (
-    <div className="flex items-center gap-2">
-      <Button variant="secondary" size="sm" icon={RefreshCw} onClick={() => void refreshAnalytics(appId)}>
-        Refresh
-      </Button>
-      {appConfig.analytics.capabilities.crossRunAiSummary && (
-        <div className="relative" ref={pickerRef}>
-          <Button variant="secondary" size="sm" icon={Sparkles} onClick={() => setShowModelPicker((value) => !value)}>
-            AI Summary
-          </Button>
-          {showModelPicker && (
-            <div className="absolute right-0 top-full z-30 mt-2 w-80 rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4 shadow-lg">
-              <LLMConfigSection
-                provider={provider}
-                onProviderChange={(value) => { setProvider(value); setModel(''); }}
-                model={model}
-                onModelChange={setModel}
-                compact
-              />
-              <Button
-                variant="primary"
-                size="sm"
-                icon={Sparkles}
-                className="mt-3 w-full"
-                disabled={!credentialsReady || !model || generatingSummary}
-                onClick={async () => {
-                  setGeneratingSummary(true);
-                  setShowModelPicker(false);
-                  try {
-                    const result = await reportsApi.generateCrossRunSummary({
-                      appId,
-                      provider,
-                      model,
-                    });
-                    setSummary(result);
-                  } catch (error) {
-                    notificationService.error(error instanceof Error ? error.message : 'Failed to generate AI summary');
-                  } finally {
-                    setGeneratingSummary(false);
-                  }
-                }}
-              >
-                Generate
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  ), [appConfig.analytics.capabilities.crossRunAiSummary, appId, credentialsReady, generatingSummary, model, provider, refreshAnalytics, showModelPicker]);
-
-  const isLoading = !entry || entry.status === 'loading';
-  const subtitle = analytics
-    ? `Updated ${analytics.metadata.computedAt ? new Date(analytics.metadata.computedAt).toLocaleString() : '—'}`
-    : undefined;
-
-  return (
-    <PageSurface
-      icon={pageIcon}
-      title={pageTitle}
-      subtitle={subtitle}
-      actions={headerActions}
-      showHeader={!isLoading}
-    >
-      {isLoading ? (
-        <LoadingState />
-      ) : !analytics ? (
-        <EmptyState
-          icon={BarChart3}
-          title="No analytics yet"
-          description="Generate at least one report, then refresh cross-run analytics."
-          className="w-full max-w-md"
-          fill
-        />
-      ) : (
-        <div className="space-y-6">
-          {generatingSummary && (
-            <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-              <Loader2 className="h-4 w-4 animate-spin text-[var(--color-info)]" />
-              Generating AI summary...
-            </div>
-          )}
-
-          {summary && <CrossRunSummaryCard summary={summary} />}
-
-          {analytics.sections.map((section) => (
-            <section key={section.id} className="space-y-4">
-              <SectionHeader title={section.title} description={section.description ?? undefined} />
-              <SectionContent section={section} />
-            </section>
-          ))}
-        </div>
-      )}
-    </PageSurface>
-  );
-}

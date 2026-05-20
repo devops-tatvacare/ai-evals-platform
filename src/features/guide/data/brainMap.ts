@@ -120,11 +120,16 @@ const templateMethods: BrainNode[] = [
   { id: 'meth-resolve-all-vars', label: 'resolveAllVariables', type: 'method', layer: 'frontend', feature: 'template-vars', fullPath: 'src/services/templates/variableResolver.ts' },
 ];
 
-// LLM Pipeline
+// LLM Pipeline — Phase 1/2/3 BYOK: backend resolver + admin AI Settings UI
 const llmFiles: BrainNode[] = [
   { id: 'file-llm-base', label: 'llm_base.py', type: 'file', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/services/evaluators/llm_base.py' },
-  { id: 'file-llm-pipeline', label: 'LLMInvocationPipeline.ts', type: 'file', layer: 'frontend', feature: 'llm-pipeline', fullPath: 'src/services/llm/pipeline/index.ts' },
-  { id: 'file-model-discovery', label: 'modelDiscovery.ts', type: 'file', layer: 'frontend', feature: 'llm-pipeline', fullPath: 'src/services/llm/modelDiscovery.ts' },
+  { id: 'file-llm-resolver', label: 'resolver.py', type: 'file', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/services/llm_credentials/resolver.py' },
+  { id: 'file-llm-model-discovery', label: 'llm_model_discovery.py', type: 'file', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/services/llm_model_discovery.py' },
+  { id: 'file-llm-assist-service', label: 'llm_assist_service.py', type: 'file', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/services/llm_assist_service.py' },
+  { id: 'file-llm-assist-routes', label: 'routes/llm_assist.py', type: 'file', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/routes/llm_assist.py' },
+  { id: 'file-ai-settings-api', label: 'aiSettingsApi.ts', type: 'file', layer: 'frontend', feature: 'llm-pipeline', fullPath: 'src/services/api/aiSettingsApi.ts' },
+  { id: 'file-ai-settings-queries', label: 'aiSettingsQueries.ts', type: 'file', layer: 'frontend', feature: 'llm-pipeline', fullPath: 'src/services/api/aiSettingsQueries.ts' },
+  { id: 'file-llm-assist-api', label: 'llmAssistApi.ts', type: 'file', layer: 'frontend', feature: 'llm-pipeline', fullPath: 'src/services/api/llmAssistApi.ts' },
 ];
 
 const llmMethods: BrainNode[] = [
@@ -133,26 +138,25 @@ const llmMethods: BrainNode[] = [
   { id: 'meth-openai-provider', label: 'OpenAIProvider', type: 'method', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/services/evaluators/llm_base.py' },
   { id: 'meth-logging-wrapper', label: 'LoggingLLMWrapper', type: 'method', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/services/evaluators/llm_base.py' },
   { id: 'meth-create-llm-provider', label: 'create_llm_provider', type: 'method', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/services/evaluators/llm_base.py' },
-  { id: 'meth-create-llm-pipeline', label: 'createLLMPipeline', type: 'method', layer: 'frontend', feature: 'llm-pipeline', fullPath: 'src/services/llm/pipeline/index.ts' },
-  { id: 'meth-discover-models', label: 'discoverModels', type: 'method', layer: 'frontend', feature: 'llm-pipeline', fullPath: 'src/services/llm/modelDiscovery.ts' },
+  { id: 'meth-resolve-creds', label: 'resolve_llm_credentials', type: 'method', layer: 'backend', feature: 'llm-pipeline', fullPath: 'backend/app/services/llm_credentials/resolver.py' },
+  { id: 'meth-use-provider-configs', label: 'useProviderConfigs', type: 'method', layer: 'frontend', feature: 'llm-pipeline', fullPath: 'src/services/api/aiSettingsQueries.ts' },
 ];
 
-// Settings & Config
+// Settings & Config — admin AI Settings page + tenant_llm_credentials table
 const settingsFiles: BrainNode[] = [
-  { id: 'file-settings-helper', label: 'settings_helper.py', type: 'file', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/evaluators/settings_helper.py' },
-  { id: 'file-llm-settings-store', label: 'llmSettingsStore.ts', type: 'file', layer: 'frontend', feature: 'settings-config', fullPath: 'src/stores/llmSettingsStore.ts' },
+  { id: 'file-tenant-llm-credentials', label: 'tenant_llm_credential.py (ORM)', type: 'file', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/models/tenant_llm_credential.py' },
+  { id: 'file-admin-ai-settings-routes', label: 'routes/admin_ai_settings.py', type: 'file', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/routes/admin_ai_settings.py' },
+  { id: 'file-admin-ai-settings-page', label: 'AdminAISettingsPage.tsx', type: 'file', layer: 'frontend', feature: 'settings-config', fullPath: 'src/features/admin/aiSettings/AdminAISettingsPage.tsx' },
   { id: 'file-job-worker', label: 'job_worker.py', type: 'file', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/job_worker.py' },
-  { id: 'file-provider-config-card', label: 'ProviderConfigCard.tsx', type: 'file', layer: 'frontend', feature: 'settings-config', fullPath: 'src/features/settings/components/ProviderConfigCard.tsx' },
 ];
 
 const settingsMethods: BrainNode[] = [
-  { id: 'meth-get-llm-settings', label: 'get_llm_settings_from_db', type: 'method', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/evaluators/settings_helper.py' },
-  { id: 'meth-detect-sa-path', label: '_detect_service_account_path', type: 'method', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/evaluators/settings_helper.py' },
-  { id: 'meth-llm-settings-store', label: 'useLLMSettingsStore', type: 'method', layer: 'frontend', feature: 'settings-config', fullPath: 'src/stores/llmSettingsStore.ts' },
+  { id: 'meth-resolve-llm-credentials', label: 'resolve_llm_credentials', type: 'method', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/llm_credentials/resolver.py' },
+  { id: 'meth-encrypt-secret', label: 'encrypt_secret / decrypt_secret', type: 'method', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/llm_credentials/crypto.py' },
+  { id: 'meth-llm-config-section', label: 'LLMConfigSection', type: 'method', layer: 'frontend', feature: 'settings-config', fullPath: 'src/components/ui/LLMConfigSection.tsx' },
   { id: 'meth-worker-loop', label: 'worker_loop', type: 'method', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/job_worker.py' },
   { id: 'meth-process-job', label: 'process_job', type: 'method', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/job_worker.py' },
   { id: 'meth-register-job-handler', label: 'register_job_handler', type: 'method', layer: 'backend', feature: 'settings-config', fullPath: 'backend/app/services/job_worker.py' },
-  { id: 'meth-provider-config-card', label: 'ProviderConfigCard', type: 'method', layer: 'frontend', feature: 'settings-config', fullPath: 'src/features/settings/components/ProviderConfigCard.tsx' },
 ];
 
 // Combined nodes

@@ -2,9 +2,11 @@ import { useCallback, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
+import { useDatasetFormats } from '@/features/orchestration/queries/datasets';
 import { ApiError } from '@/services/api/client';
 import {
   orchestrationDatasetsApi,
+  type DatasetFormatResponse,
   type DatasetVersionResponse,
 } from '@/services/api/orchestrationDatasets';
 import { notificationService } from '@/services/notifications';
@@ -18,23 +20,34 @@ interface Props {
   onUploaded(version: DatasetVersionResponse): void;
 }
 
-interface CsvPreview {
+interface FilePreview {
   headers: string[];
-  /** Aligned with `headers`; first non-empty cell value per column. */
   firstValues: Array<string | null>;
 }
 
-/**
- * Lightweight client-side CSV preview parser. Reads the first ~50 lines of
- * the uploaded file so the operator can confirm headers + see one sample
- * value per column before committing to an upload. Server-side import is the
- * source of truth (handles RFC 4180 quoting, type inference, etc.) — this
- * preview is purely informational and intentionally does *not* attempt to be
- * a fully-correct CSV parser. Headers/values containing embedded commas or
- * newlines are uncommon in cohort exports and will be reflected verbatim
- * server-side regardless.
- */
-function parsePreview(text: string): CsvPreview | null {
+function fileExtension(name: string): string {
+  const idx = name.lastIndexOf('.');
+  return idx < 0 ? '' : name.slice(idx).toLowerCase();
+}
+
+function resolveHandler(
+  formats: DatasetFormatResponse[],
+  picked: File,
+): DatasetFormatResponse | null {
+  const ext = fileExtension(picked.name);
+  if (ext) {
+    const byExt = formats.find((f) => f.extensions.includes(ext));
+    if (byExt) return byExt;
+  }
+  if (picked.type) {
+    const ct = picked.type.split(';', 1)[0].trim().toLowerCase();
+    const byMime = formats.find((f) => f.mimeTypes.includes(ct));
+    if (byMime) return byMime;
+  }
+  return null;
+}
+
+function parseCsvPreview(text: string): FilePreview | null {
   const lines = text
     .split(/\r?\n/)
     .filter((line) => line.length > 0)
@@ -55,14 +68,94 @@ function parsePreview(text: string): CsvPreview | null {
   return { headers, firstValues };
 }
 
+async function parseXlsxPreview(file: File): Promise<FilePreview | null> {
+  const xlsx = await import('xlsx');
+  const buf = await file.arrayBuffer();
+  const wb = xlsx.read(buf, { type: 'array' });
+  const sheetName = wb.SheetNames[0];
+  if (!sheetName) return null;
+  const sheet = wb.Sheets[sheetName];
+  const rows = xlsx.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1,
+    blankrows: false,
+    defval: null,
+    raw: false,
+    range: 0,
+  });
+  if (rows.length === 0) return null;
+  const header = rows[0] ?? [];
+  const headers = header.map((cell) => String(cell ?? '').trim());
+  if (headers.length === 0 || headers.every((h) => !h)) return null;
+  const firstValues: Array<string | null> = headers.map(() => null);
+  for (let i = 1; i < rows.length && i < 50; i += 1) {
+    const cells = rows[i] ?? [];
+    for (let c = 0; c < headers.length; c += 1) {
+      if (firstValues[c] === null) {
+        const v = cells[c];
+        const s = v === null || v === undefined ? '' : String(v).trim();
+        if (s) firstValues[c] = s;
+      }
+    }
+    if (firstValues.every((v) => v !== null)) break;
+  }
+  return { headers, firstValues };
+}
+
+function parsePreviewByFormat(
+  file: File,
+  format: DatasetFormatResponse,
+): Promise<FilePreview | null> {
+  if (format.sourceType === 'csv') {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = String(reader.result ?? '');
+        resolve(parseCsvPreview(text));
+      };
+      reader.onerror = () => reject(reader.error ?? new Error('FileReader failed'));
+      reader.readAsText(file.slice(0, 64 * 1024));
+    });
+  }
+  if (format.sourceType === 'xlsx') {
+    return parseXlsxPreview(file);
+  }
+  return Promise.resolve(null);
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function DatasetUploadForm({ datasetId, onClose, onUploaded }: Props) {
+  const { data: formats = [], isLoading: formatsLoading } = useDatasetFormats();
+
   const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<CsvPreview | null>(null);
+  const [pickedFormat, setPickedFormat] = useState<DatasetFormatResponse | null>(null);
+  const [preview, setPreview] = useState<FilePreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [idStrategy, setIdStrategy] = useState<IdStrategy>('column');
   const [idColumn, setIdColumn] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+
+  const acceptAttr = useMemo(() => {
+    const exts = formats.flatMap((f) => f.extensions);
+    const mimes = formats.flatMap((f) => f.mimeTypes);
+    return [...exts, ...mimes].join(',');
+  }, [formats]);
+
+  const supportedLabels = useMemo(
+    () => formats.map((f) => f.label).join(', '),
+    [formats],
+  );
+
+  const allowedExtList = useMemo(
+    () => formats.flatMap((f) => f.extensions).join(', '),
+    [formats],
+  );
 
   const columnOptions = useMemo(() => {
     if (!preview) return [];
@@ -75,48 +168,56 @@ export function DatasetUploadForm({ datasetId, onClose, onUploaded }: Props) {
     });
   }, [preview]);
 
-  const handleFile = useCallback((picked: File | null) => {
-    setServerError(null);
-    setPreviewError(null);
-    setIdColumn('');
-    if (!picked) {
-      setFile(null);
+  const handleFile = useCallback(
+    (picked: File | null) => {
+      setServerError(null);
+      setPreviewError(null);
+      setIdColumn('');
       setPreview(null);
-      return;
-    }
-    if (!picked.name.toLowerCase().endsWith('.csv')) {
-      setFile(null);
-      setPreview(null);
-      setPreviewError('File must be a CSV (.csv extension).');
-      return;
-    }
-    setFile(picked);
-    // Read just enough bytes for a sensible header preview. The server still
-    // does the real parse; this is purely UX.
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = String(reader.result ?? '');
-      const parsed = parsePreview(text);
-      if (!parsed) {
-        setPreview(null);
-        setPreviewError('Could not detect a header row. The file may be empty.');
+      setPickedFormat(null);
+      if (!picked) {
+        setFile(null);
         return;
       }
-      setPreview(parsed);
-    };
-    reader.onerror = () => {
-      setPreview(null);
-      setPreviewError('Could not read the file for preview.');
-    };
-    // Slice keeps the preview cheap regardless of file size.
-    reader.readAsText(picked.slice(0, 64 * 1024));
-  }, []);
+      const handler = resolveHandler(formats, picked);
+      if (!handler) {
+        setFile(null);
+        setPreviewError(
+          allowedExtList
+            ? `Unsupported file type. Allowed: ${allowedExtList}.`
+            : 'Unsupported file type.',
+        );
+        return;
+      }
+      setFile(picked);
+      setPickedFormat(handler);
+      if (!handler.supportsClientPreview) {
+        return;
+      }
+      setPreviewLoading(true);
+      parsePreviewByFormat(picked, handler)
+        .then((parsed) => {
+          if (!parsed) {
+            setPreviewError(
+              'Could not detect a header row. The file may be empty.',
+            );
+            return;
+          }
+          setPreview(parsed);
+        })
+        .catch(() => {
+          setPreviewError('Could not read the file for preview.');
+        })
+        .finally(() => setPreviewLoading(false));
+    },
+    [formats, allowedExtList],
+  );
 
   const canSubmit = useMemo(() => {
-    if (!file || submitting) return false;
+    if (!file || !pickedFormat || submitting) return false;
     if (idStrategy === 'uuid') return true;
     return Boolean(idColumn);
-  }, [file, submitting, idStrategy, idColumn]);
+  }, [file, pickedFormat, submitting, idStrategy, idColumn]);
 
   async function handleSubmit() {
     if (!file) return;
@@ -150,12 +251,13 @@ export function DatasetUploadForm({ datasetId, onClose, onUploaded }: Props) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
         <label className="text-sm font-medium text-[var(--text-primary)]">
-          CSV file
+          Data file
         </label>
         <input
           type="file"
-          accept=".csv,text/csv"
-          aria-label="CSV file"
+          accept={acceptAttr || undefined}
+          aria-label="Data file"
+          disabled={formatsLoading}
           onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
           className={cn(
             'block w-full text-sm text-[var(--text-primary)]',
@@ -165,15 +267,24 @@ export function DatasetUploadForm({ datasetId, onClose, onUploaded }: Props) {
             'hover:file:bg-[var(--interactive-secondary)]',
           )}
         />
+        {supportedLabels ? (
+          <p className="text-xs text-[var(--text-secondary)]">
+            Supported: {supportedLabels}
+          </p>
+        ) : null}
         {previewError ? (
           <p className="text-xs text-[var(--color-error)]">{previewError}</p>
         ) : null}
-        {file ? (
+        {file && pickedFormat ? (
           <p className="text-xs text-[var(--text-secondary)]">
-            {file.name} · {(file.size / 1024).toFixed(1)} KB
+            {file.name} · {formatBytes(file.size)} · {pickedFormat.label}
           </p>
         ) : null}
       </div>
+
+      {previewLoading ? (
+        <p className="text-xs text-[var(--text-secondary)]">Reading preview…</p>
+      ) : null}
 
       {preview ? (
         <div className="flex flex-col gap-1">
@@ -243,10 +354,20 @@ export function DatasetUploadForm({ datasetId, onClose, onUploaded }: Props) {
               onChange={(next) => setIdColumn(next)}
               options={columnOptions}
               placeholder={
-                preview ? 'Select a column' : 'Pick a CSV first'
+                preview
+                  ? 'Select a column'
+                  : pickedFormat && !pickedFormat.supportsClientPreview
+                    ? "Server will validate after upload"
+                    : 'Pick a file first'
               }
               disabled={!preview || columnOptions.length === 0}
             />
+            {pickedFormat && !pickedFormat.supportsClientPreview ? (
+              <p className="text-xs text-[var(--text-secondary)]">
+                Column-based IDs need a header preview. Pick a file format that
+                supports preview, or use auto-generated UUIDs.
+              </p>
+            ) : null}
           </div>
         ) : null}
       </fieldset>

@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
 import { Play, AlertCircle, Loader2, ExternalLink } from 'lucide-react';
-import { Button, ModelBadge, EmptyState } from '@/components/ui';
-import { useLLMSettingsStore, hasLLMCredentials } from '@/stores';
+
+import { Button, EmptyState } from '@/components/ui';
+import { useProviderConfigs } from '@/services/api/aiSettingsQueries';
 import { useNetworkStatus } from '@/hooks';
 import { routes } from '@/config/routes';
 
@@ -21,18 +22,22 @@ export function AIEvalRequest({
   hasTranscript,
   activeRunId,
 }: AIEvalRequestProps) {
-  const hasHydrated = useLLMSettingsStore((state) => state._hasHydrated);
-  const llm = useLLMSettingsStore();
+  const { data: providerConfigs = [], isLoading: hydrating } = useProviderConfigs();
   const isOnline = useNetworkStatus();
 
-  const credentialsOk = hasLLMCredentials(llm);
-  const canEvaluate = hasHydrated && hasAudio && hasTranscript && credentialsOk && isOnline && !isEvaluating;
+  // BYOK: a provider is "ready" only when the admin has enabled it and the
+  // last validation passed. The actual provider+model picked by the run
+  // (overlay state) is independent of this gate.
+  const credentialsOk = providerConfigs.some(
+    (c) => c.isEnabled && c.validationStatus === 'ok',
+  );
+  const canEvaluate = !hydrating && hasAudio && hasTranscript && credentialsOk && isOnline && !isEvaluating;
 
   const warnings: { message: string }[] = [];
-  if (!hasHydrated) {
-    // loading state handled below
-  } else if (!credentialsOk) {
-    warnings.push({ message: 'Configure your API key or service account in Settings first' });
+  if (!hydrating && !credentialsOk) {
+    warnings.push({
+      message: 'No LLM provider configured. An admin must set one up in AI Settings.',
+    });
   }
   if (!isOnline) warnings.push({ message: "You're offline. Connect to use AI features." });
   if (!hasAudio) warnings.push({ message: 'No audio file available for this listing' });
@@ -45,10 +50,10 @@ export function AIEvalRequest({
       description={isEvaluating ? undefined : "Compare AI-generated transcript against the original."}
       className="w-full max-w-md"
     >
-      {!hasHydrated ? (
+      {hydrating ? (
         <div className="flex items-center justify-center gap-2 text-[13px] text-[var(--text-secondary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
-          <span>Loading settings...</span>
+          <span>Loading provider configuration...</span>
         </div>
       ) : (
         <>
@@ -87,13 +92,6 @@ export function AIEvalRequest({
             <Play className="h-4 w-4" />
             Run Evaluation
           </Button>
-          {credentialsOk && (
-            <ModelBadge
-              modelName={llm.provider}
-              variant="compact"
-              showPoweredBy
-            />
-          )}
         </div>
       )}
     </EmptyState>

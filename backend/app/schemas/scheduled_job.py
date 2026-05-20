@@ -43,6 +43,8 @@ class ScheduledJobBase(CamelModel):
     params: dict[str, Any] = Field(default_factory=dict)
     override: ScheduleOverride = Field(default_factory=ScheduleOverride)
     enabled: bool = True
+    notify_owner_on_failure: bool = False
+    notify_emails_on_failure: list[str] = Field(default_factory=list, max_length=10)
 
 
 class ScheduledJobCreate(ScheduledJobBase):
@@ -58,6 +60,8 @@ class ScheduledJobUpdate(CamelModel):
     params: dict[str, Any] | None = None
     override: ScheduleOverride | None = None
     enabled: bool | None = None
+    notify_owner_on_failure: bool | None = None
+    notify_emails_on_failure: list[str] | None = Field(default=None, max_length=10)
 
 
 class ScheduledJobRow(CamelORMModel):
@@ -92,6 +96,9 @@ class ScheduledJobRow(CamelORMModel):
     # or None when there has been no fire yet. Lets the UI show a
     # "running" indicator without a second round-trip.
     last_fire_status: str | None = None
+    notify_owner_on_failure: bool = False
+    notify_emails_on_failure: list[str] = Field(default_factory=list)
+    created_by_user_email_snapshot: str | None = None
 
 
 class ScheduledJobFireSummary(CamelModel):

@@ -1,5 +1,12 @@
-import { useState } from 'react';
-import { Modal, Button, Input, PasswordStrengthIndicator, validatePasswordStrength } from '@/components/ui';
+import { useState, useId } from 'react';
+import { X } from 'lucide-react';
+import {
+  Button,
+  Input,
+  PasswordStrengthIndicator,
+  RightSlideOverShell,
+  validatePasswordStrength,
+} from '@/components/ui';
 import { adminApi } from '@/services/api/adminApi';
 import type { AdminUser } from '@/services/api/adminApi';
 
@@ -11,6 +18,7 @@ interface ResetPasswordDialogProps {
 }
 
 export function ResetPasswordDialog({ isOpen, user, onClose, onSuccess }: ResetPasswordDialogProps) {
+  const titleId = useId();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -23,15 +31,13 @@ export function ResetPasswordDialog({ isOpen, user, onClose, onSuccess }: ResetP
     onClose();
   };
 
-  if (!user) return null;
-
   const { valid: passwordStrong } = validatePasswordStrength(newPassword);
 
-  const canSubmit = passwordStrong && newPassword === confirmPassword && !isSubmitting;
+  const canSubmit = !!user && passwordStrong && newPassword === confirmPassword && !isSubmitting;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!canSubmit) return;
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!canSubmit || !user) return;
 
     setIsSubmitting(true);
     setError('');
@@ -47,13 +53,30 @@ export function ResetPasswordDialog({ isOpen, user, onClose, onSuccess }: ResetP
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Reset Password">
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <RightSlideOverShell isOpen={isOpen} onClose={handleClose} labelledBy={titleId}>
+      <div className="flex items-center justify-between border-b border-[var(--border-default)] px-5 py-4">
+        <h2 id={titleId} className="text-base font-semibold text-[var(--text-primary)]">
+          Reset Password
+        </h2>
+        <button
+          type="button"
+          onClick={handleClose}
+          aria-label="Close"
+          className="rounded-md p-1 text-[var(--text-muted)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)] transition-colors"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <form
+        onSubmit={handleSubmit}
+        className="flex-1 overflow-y-auto px-5 py-4 space-y-4"
+      >
         <div>
           <label className="mb-1 block text-[13px] font-medium text-[var(--text-secondary)]">
             User
           </label>
-          <Input value={`${user.displayName} (${user.email})`} disabled />
+          <Input value={user ? `${user.displayName} (${user.email})` : ''} disabled />
         </div>
         <div>
           <label className="mb-1 block text-[13px] font-medium text-[var(--text-secondary)]">
@@ -79,7 +102,7 @@ export function ResetPasswordDialog({ isOpen, user, onClose, onSuccess }: ResetP
             placeholder="Re-enter password"
           />
           {confirmPassword.length > 0 && newPassword !== confirmPassword && (
-            <p className="mt-1 text-[11px] text-red-400">Passwords do not match</p>
+            <p className="mt-1 text-[11px] text-[var(--color-error)]">Passwords do not match</p>
           )}
         </div>
 
@@ -90,16 +113,21 @@ export function ResetPasswordDialog({ isOpen, user, onClose, onSuccess }: ResetP
         {error && (
           <p className="text-[13px] text-[var(--color-error)]">{error}</p>
         )}
-
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" size="md" onClick={handleClose}>
-            Cancel
-          </Button>
-          <Button type="submit" size="md" disabled={!canSubmit} isLoading={isSubmitting}>
-            Reset Password
-          </Button>
-        </div>
       </form>
-    </Modal>
+
+      <div className="border-t border-[var(--border-default)] px-5 py-3 flex justify-end gap-2">
+        <Button type="button" variant="secondary" size="md" onClick={handleClose}>
+          Cancel
+        </Button>
+        <Button
+          size="md"
+          disabled={!canSubmit}
+          isLoading={isSubmitting}
+          onClick={() => handleSubmit()}
+        >
+          Reset Password
+        </Button>
+      </div>
+    </RightSlideOverShell>
   );
 }

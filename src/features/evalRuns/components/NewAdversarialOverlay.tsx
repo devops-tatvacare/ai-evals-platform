@@ -11,8 +11,7 @@ import {
 } from './TestConfigStep';
 import { LLMConfigStep, type LLMConfig } from './LLMConfigStep';
 import { ReviewStep, type ReviewSection, type ReviewSummary } from './ReviewStep';
-import { useLLMSettingsStore, useAppSettingsStore, useGlobalSettingsStore, hasProviderCredentials, LLM_PROVIDERS } from '@/stores';
-import type { LLMProvider } from '@/types';
+import { useAppSettingsStore, useGlobalSettingsStore } from '@/stores';
 import { useSubmitAndRedirect } from '@/hooks/useSubmitAndRedirect';
 import { routes } from '@/config/routes';
 import { kairaCredentialPoolConfig } from '@/features/credentialPool/kairaCredentialPoolConfig';
@@ -73,7 +72,6 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
   const [manualCases, setManualCases] = useState<AdversarialManualCaseInput[]>([]);
   const [parallelCases, setParallelCases] = useState(false);
   const [caseWorkers, setCaseWorkers] = useState(3);
-  const [modelsLoading, setModelsLoading] = useState(false);
   const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
   const [selectedTraits, setSelectedTraits] = useState<string[] | null>(null);
   const [selectedRuleIds, setSelectedRuleIds] = useState<string[] | null>(null);
@@ -84,7 +82,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
   const [flowMode, setFlowMode] = useState<'single' | 'multi'>('single');
   const [extraInstructions, setExtraInstructions] = useState('');
   const [llmConfig, setLlmConfig] = useState<LLMConfig>({
-    provider: LLM_PROVIDERS[0].value,
+    provider: '',
     model: '',
     temperature: 0.1,
     thinking: 'low',
@@ -124,7 +122,7 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
         if (caseMode === 'generate') return generationConfigured;
         if (caseMode === 'saved') return savedConfigured;
         return generationConfigured || savedConfigured;
-      case 3: return Boolean(llmConfig.model) && !modelsLoading && hasProviderCredentials(llmConfig.provider as LLMProvider, useLLMSettingsStore.getState());
+      case 3: return Boolean(llmConfig.provider) && Boolean(llmConfig.model);
       case 4: return true;
       default: return false;
     }
@@ -135,7 +133,6 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
     resolvedCredentialRows.length,
     testCount,
     llmConfig,
-    modelsLoading,
     caseMode,
     selectedGoals.length,
     selectedTraits,
@@ -423,7 +420,6 @@ export function NewAdversarialOverlay({ onClose }: NewAdversarialOverlayProps) {
           <LLMConfigStep
             config={llmConfig}
             onChange={setLlmConfig}
-            onModelsLoading={setModelsLoading}
             parallelCases={parallelCases}
             caseWorkers={caseWorkers}
             maxTurns={maxTurns}

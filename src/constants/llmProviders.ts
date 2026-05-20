@@ -1,0 +1,21 @@
+import type { LlmProvider } from '@/services/api/llmCredentialsApi';
+
+export const LLM_PROVIDER_LABELS: Record<LlmProvider, string> = {
+  openai: 'OpenAI',
+  azure_openai: 'Azure OpenAI',
+  anthropic: 'Anthropic',
+  gemini: 'Gemini',
+  // Backend/catalog key stays 'vertex'; UI uses Google's current product brand.
+  vertex: 'Gemini Agent Platform',
+  bedrock: 'AWS Bedrock',
+};
+
+export const LLM_PROVIDER_LOGOS: Record<LlmProvider, string> = {
+  openai: '/llm-logos/openai.svg',
+  azure_openai: '/llm-logos/azure.svg',
+  anthropic: '/llm-logos/anthropic.svg',
+  gemini: '/llm-logos/gemini.svg',
+  vertex: '/llm-logos/gemini.svg',
+  bedrock: '/llm-logos/bedrock.svg',
+};
+

@@ -17,8 +17,8 @@ import { applyCanvasPatch } from './canvasPatchApplier';
 
 // Empty config is the draft-default for partial authoring — every node
 // schema permits it under ``parseNodeConfig({mode: 'draft'})``. The applier
-// re-validates every add_node config, so the previous ``dataset_version_id``
-// fixture (an unrecognized key on ``source.cohort_query``) is now blocked.
+// re-validates every add_node config, so unknown keys (the old contract
+// drift case) stay blocked.
 function fixturePatch(baseHash: string) {
   return {
     workflow_id: 'wf_demo',
@@ -40,7 +40,7 @@ function fixturePatch(baseHash: string) {
         op: 'add_node',
         node_id: 'n_c',
         payload: {
-          node_type: 'source.cohort_query',
+          node_type: 'source.event_trigger',
           config: {},
         },
       },
@@ -168,12 +168,12 @@ describe('applyCanvasPatch', () => {
     const store = useWorkflowBuilderStore.getState();
     store.addNode({
       id: 'n_existing',
-      type: 'crm.send_wati',
+      type: 'core.webhook_out',
       position: { x: 0, y: 0 },
       data: {},
-      // Existing fields all belong to the crm.send_wati schema so the
-      // Section 6 re-validation lets the merged config through.
-      config: { template_slug: 'old', broadcast_name: 'unchanged' },
+      // Existing fields belong to the core.webhook_out schema so the
+      // re-validation lets the merged config through.
+      config: { url: 'https://old.example.com/in', method: 'POST' },
     });
 
     const baseHash = useWorkflowBuilderStore.getState().currentDataHash;
@@ -187,7 +187,7 @@ describe('applyCanvasPatch', () => {
           {
             op: 'update_node_config',
             node_id: 'n_existing',
-            payload: { config_patch: { template_slug: 'new' } },
+            payload: { config_patch: { url: 'https://new.example.com/in' } },
           },
         ],
       },
@@ -198,8 +198,8 @@ describe('applyCanvasPatch', () => {
       .getState()
       .nodes.find((n) => n.id === 'n_existing');
     expect(updated?.config).toMatchObject({
-      template_slug: 'new',
-      broadcast_name: 'unchanged',
+      url: 'https://new.example.com/in',
+      method: 'POST',
     });
   });
 

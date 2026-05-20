@@ -44,6 +44,18 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
   cancelled: 'neutral',
 };
 
+// Statuses whose raw value reads poorly to an operator get a friendly label.
+const STATUS_LABEL: Record<string, string> = {
+  skipped_capped: 'Skipped (limit reached)',
+};
+
+// A reach-cap skip is an intentional throttle, not a failure — give it its
+// own token rather than borrowing warning/error.
+const STATUS_CLASS: Record<string, string> = {
+  skipped_capped:
+    'bg-[var(--color-status-capped-light)] text-[var(--color-status-capped)]',
+};
+
 function formatAbsolute(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -143,7 +155,12 @@ export function RunRecipientsPanel({ runId, runStatus }: Props) {
         header: 'Status',
         width: 'w-[120px]',
         render: (r) => (
-          <Badge variant={STATUS_VARIANT[r.status] ?? 'neutral'}>{r.status}</Badge>
+          <Badge
+            variant={STATUS_VARIANT[r.status] ?? 'neutral'}
+            className={STATUS_CLASS[r.status]}
+          >
+            {STATUS_LABEL[r.status] ?? r.status}
+          </Badge>
         ),
       },
       {

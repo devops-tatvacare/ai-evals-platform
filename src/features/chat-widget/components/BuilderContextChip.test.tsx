@@ -13,15 +13,15 @@ function fixture(viewMode: 'view' | 'edit'): Extract<PageContext, { kind: 'orche
     versionId: 'v_1',
     workflowType: 'crm',
     appId: 'inside-sales',
-    selectedNodeId: 'send_wati_1',
+    selectedNodeId: 'webhook_out_1',
     workflowName: 'MQL Concierge',
     dataHash: 'abc1234567890def',
     viewMode,
     definition: {
       nodes: [
         {
-          id: 'send_wati_1',
-          type: 'crm.send_wati',
+          id: 'webhook_out_1',
+          type: 'core.webhook_out',
           position: { x: 0, y: 0 },
           data: {},
           config: {},
@@ -37,7 +37,7 @@ function fixture(viewMode: 'view' | 'edit'): Extract<PageContext, { kind: 'orche
       edges: [
         {
           id: 'e1',
-          source: 'send_wati_1',
+          source: 'webhook_out_1',
           target: 'sink_1',
           output_id: 'success',
         },
@@ -85,8 +85,8 @@ describe('BuilderContextChip — expand / collapse', () => {
 
     // Selection row — selected node type + id are derived from the
     // definition lookup, never hardcoded.
-    expect(screen.getByText('crm.send_wati')).toBeInTheDocument();
-    expect(screen.getByText('send_wati_1')).toBeInTheDocument();
+    expect(screen.getByText('core.webhook_out')).toBeInTheDocument();
+    expect(screen.getByText('webhook_out_1')).toBeInTheDocument();
 
     // Canvas row — counts + hash prefix derived.
     expect(screen.getByText('2 nodes')).toBeInTheDocument();

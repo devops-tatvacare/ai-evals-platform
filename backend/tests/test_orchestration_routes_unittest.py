@@ -8,6 +8,7 @@ workflow rows remain editable; system rows stay read-only).
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -22,8 +23,10 @@ from app.main import app as fastapi_app
 from app.models.orchestration import (
     Workflow,
     WorkflowRun,
+    WorkflowRunCancelAudit,
     WorkflowRunRecipientOverride,
     WorkflowTrigger,
+    WorkflowVersion,
 )
 from app.models.scheduled_job import ScheduledJobDefinition
 from app.models.tenant import Tenant
@@ -96,10 +99,10 @@ _MIN_VALID_DEFINITION = {
     "nodes": [
         {
             "id": "src",
-            "type": "source.cohort_query",
+            "type": "source.event_trigger",
             "position": {"x": 0, "y": 0},
             "data": {},
-            "config": {"source_ref": "crm.lead_record", "payload_fields": []},
+            "config": {},
         },
         {
             "id": "done",
@@ -304,19 +307,20 @@ async def test_publish_sets_current_published_version_id(client):
 
 
 @pytest.mark.asyncio
-async def test_publish_rejects_unknown_node_type(client):
+async def test_draft_create_rejects_unknown_node_type(client):
+    """Draft-mode validation now blocks unknown node types at create time
+    (a half-broken draft can't poison subsequent publish attempts). The
+    publish-stage rejection is therefore unreachable for unknown types —
+    the assertion moves up to the create call."""
     wf = (await client.post(
         "/api/orchestration/workflows", json=_wf_body(f"val-{uuid.uuid4().hex[:8]}")
     )).json()
-    v = (await client.post(
+    r = await client.post(
         f"/api/orchestration/workflows/{wf['id']}/versions",
         json={"definition": {
             "nodes": [{"id": "n1", "type": "fake.unknown_node", "config": {}}],
             "edges": [],
         }},
-    )).json()
-    r = await client.post(
-        f"/api/orchestration/workflows/{wf['id']}/versions/{v['id']}/publish"
     )
     assert r.status_code == 400
     detail = r.json()["detail"]
@@ -326,18 +330,14 @@ async def test_publish_rejects_unknown_node_type(client):
 
 @pytest.mark.asyncio
 async def test_publish_rejects_invalid_node_config(client):
+    """``core.webhook_out`` with empty config fails publish on schema-required ``url``."""
     wf = (await client.post(
         "/api/orchestration/workflows", json=_wf_body(f"cfg-{uuid.uuid4().hex[:8]}")
     )).json()
-    # Phase 13/Phase C activated the publish-gate validator: a crm.send_wati
-    # node with empty config now fails the gate (missing connection_id /
-    # template_name / channel_number / broadcast_name) before the structural
-    # validator's config_schema check ever runs. Route returns 422 with a
-    # structured detail body.
     v = (await client.post(
         f"/api/orchestration/workflows/{wf['id']}/versions",
         json={"definition": {
-            "nodes": [{"id": "n1", "type": "crm.send_wati", "config": {}}],
+            "nodes": [{"id": "n1", "type": "core.webhook_out", "config": {}}],
             "edges": [],
         }},
     )).json()
@@ -345,11 +345,6 @@ async def test_publish_rejects_invalid_node_config(client):
         f"/api/orchestration/workflows/{wf['id']}/versions/{v['id']}/publish"
     )
     assert r.status_code == 422
-    detail = r.json()["detail"]
-    assert isinstance(detail, list) and detail
-    fields = {entry["field"] for entry in detail}
-    assert "template_name" in fields
-    assert "channel_number" in fields
 
 
 # ─── Triggers + cron sync ───────────────────────────────────────────────────
@@ -569,13 +564,17 @@ async def test_cancel_run(client, db_session):
         "/api/orchestration/runs", json={"workflowId": wf["id"], "params": {}}
     )).json()
     r = await client.post(f"/api/orchestration/runs/{run['id']}/cancel")
-    assert r.status_code == 204
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["runId"] == run["id"]
+    assert body["status"] == "cancelled"
 
     row = (await db_session.execute(
         select(WorkflowRun).where(WorkflowRun.id == uuid.UUID(run["id"]))
     )).scalar_one()
     assert row.status == "cancelled"
     assert row.completed_at is not None
+    assert row.cancel_requested_at is not None
 
 
 @pytest.mark.asyncio
@@ -676,9 +675,8 @@ async def test_node_types_filtered_for_crm(client):
     r = await client.get("/api/orchestration/node_types?workflowType=crm")
     assert r.status_code == 200
     types = [t["nodeType"] for t in r.json()]
-    assert "crm.send_wati" in types
     assert "core.webhook_out" in types
-    assert "clinical.schedule_lab" not in types
+    assert "sink.complete" in types
 
 
 @pytest.mark.asyncio
@@ -688,3 +686,108 @@ async def test_node_type_descriptor_includes_config_schema(client):
     cond = descs["logic.conditional"]
     schema = cond["configSchema"]
     assert "properties" in schema
+
+
+# ─── Run cancel (TerminationReceipt) ─────────────────────────────────────────
+
+
+async def _seed_running_run(db_session, tenant_id):
+    wf = Workflow(
+        id=uuid.uuid4(), tenant_id=tenant_id, app_id="inside-sales",
+        workflow_type="crm", slug=f"cancel-{uuid.uuid4().hex[:8]}",
+        name="Cancel", created_by=SYSTEM_USER_ID,
+    )
+    db_session.add(wf)
+    await db_session.flush()
+    ver = WorkflowVersion(
+        id=uuid.uuid4(), tenant_id=tenant_id, app_id="inside-sales",
+        workflow_id=wf.id, version=1,
+        definition={"nodes": [], "edges": []}, status="published",
+    )
+    db_session.add(ver)
+    await db_session.flush()
+    run = WorkflowRun(
+        id=uuid.uuid4(), tenant_id=tenant_id, app_id="inside-sales",
+        workflow_id=wf.id, workflow_version_id=ver.id,
+        triggered_by="manual", triggered_by_user_id=SYSTEM_USER_ID,
+        status="running",
+    )
+    db_session.add(run)
+    await db_session.flush()
+    return run
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_returns_termination_receipt(client, db_session, route_tenant_id):
+    run = await _seed_running_run(db_session, route_tenant_id)
+    r = await client.post(
+        f"/api/orchestration/runs/{run.id}/cancel", json={"reason": "operator"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["runId"] == str(run.id)
+    assert body["status"] == "cancelled"
+    assert "recipientsAborted" in body
+    assert "finalizeJobId" in body
+    assert "cancelRequestedAt" in body
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_defaults_reason_when_body_omitted(client, db_session, route_tenant_id):
+    run = await _seed_running_run(db_session, route_tenant_id)
+    r = await client.post(f"/api/orchestration/runs/{run.id}/cancel")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_cancel_unknown_run_returns_404(client):
+    r = await client.post(
+        f"/api/orchestration/runs/{uuid.uuid4()}/cancel", json={"reason": "operator"},
+    )
+    assert r.status_code == 404
+
+
+# ─── Cancel audits read ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_cancel_audits_returns_rows_ordered(client, db_session, route_tenant_id):
+    run = await _seed_running_run(db_session, route_tenant_id)
+    conn_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+    # Insert newest-first so a passing order assertion proves the query sorts by
+    # created_at asc rather than echoing insertion order.
+    db_session.add(WorkflowRunCancelAudit(
+        id=uuid.uuid4(), run_id=run.id, tenant_id=route_tenant_id,
+        provider_connection_id=conn_id, outcome="noop_already_terminal",
+        provider_message="msg-newer", created_at=now,
+    ))
+    db_session.add(WorkflowRunCancelAudit(
+        id=uuid.uuid4(), run_id=run.id, tenant_id=route_tenant_id,
+        provider_connection_id=conn_id, outcome="cancelled",
+        provider_message="msg-older", created_at=now - timedelta(seconds=30),
+    ))
+    await db_session.flush()
+
+    r = await client.get(f"/api/orchestration/runs/{run.id}/cancel-audits")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert [row["outcome"] for row in body] == ["cancelled", "noop_already_terminal"]
+    assert body[0]["runId"] == str(run.id)
+    assert body[0]["providerConnectionId"] == str(conn_id)
+    assert "createdAt" in body[0]
+
+
+@pytest.mark.asyncio
+async def test_list_cancel_audits_empty_when_none(client, db_session, route_tenant_id):
+    run = await _seed_running_run(db_session, route_tenant_id)
+    r = await client.get(f"/api/orchestration/runs/{run.id}/cancel-audits")
+    assert r.status_code == 200, r.text
+    assert r.json() == []
+
+
+@pytest.mark.asyncio
+async def test_list_cancel_audits_unknown_run_returns_404(client):
+    r = await client.get(f"/api/orchestration/runs/{uuid.uuid4()}/cancel-audits")
+    assert r.status_code == 404

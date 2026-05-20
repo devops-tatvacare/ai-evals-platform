@@ -996,6 +996,7 @@ async def _run_job(job_id: str, job_type: str, params: dict) -> None:
             # Re-fetch job in a fresh session and mark as failed.
             # Retry up to 3 times so a transient DB error doesn't
             # leave the job stuck in "running" forever.
+            emit_args: dict | None = None
             for attempt in range(3):
                 try:
                     async with async_session() as db2:
@@ -1072,6 +1073,26 @@ async def _run_job(job_id: str, job_type: str, params: dict) -> None:
                                 j,
                                 worker_id=WORKER_INSTANCE_ID,
                                 retry_delay_seconds=transition.get("retry_delay_seconds"),
+                            )
+                            # Capture scalars while db2 is still open, then exit
+                            # the session before opening a fresh one for the
+                            # notification fan-out. Avoids holding two pooled
+                            # connections per failure.
+                            if j.status == "failed" and j.scheduled_job_id is not None:
+                                emit_args = {
+                                    "tenant_id": j.tenant_id,
+                                    "definition_id": j.scheduled_job_id,
+                                    "run_id": j.id,
+                                    "error_message": j.error_message,
+                                    "completed_at": j.completed_at,
+                                }
+                    if emit_args is not None:
+                        try:
+                            await _emit_scheduled_job_failed(**emit_args)
+                        except Exception as emit_err:
+                            logger.warning(
+                                "scheduled_job_failed_emit_event_error: %s",
+                                emit_err,
                             )
                     break
                 except Exception as db_err:
@@ -1281,8 +1302,6 @@ async def handle_evaluate_batch(job_id, params: dict, *, tenant_id: uuid.UUID, u
         app_id=params.get("app_id", "kaira-bot"),
         llm_provider=params.get("llm_provider", "gemini"),
         llm_model=params.get("llm_model"),
-        api_key=params.get("api_key", ""),
-        service_account_path=params.get("service_account_path", ""),
         temperature=params.get("temperature", 0.1),
         intent_system_prompt=params.get("intent_system_prompt", ""),
         evaluate_intent=params.get("evaluate_intent", True),
@@ -1302,8 +1321,6 @@ async def handle_evaluate_batch(job_id, params: dict, *, tenant_id: uuid.UUID, u
         custom_only=params.get("custom_only", False),
         truncate_responses=params.get("truncate_responses", False),
         selected_rule_ids=params.get("selected_rule_ids"),
-        azure_endpoint=params.get("azure_endpoint", ""),
-        api_version=params.get("api_version", ""),
         eval_run_id=params.get("eval_run_id"),
     )
     return result
@@ -1334,7 +1351,6 @@ async def handle_evaluate_adversarial(job_id, params: dict, *, tenant_id: uuid.U
         max_turns=params.get("max_turns", settings.ADVERSARIAL_MAX_TURNS),
         llm_provider=params.get("llm_provider", "gemini"),
         llm_model=params.get("llm_model"),
-        api_key=params.get("api_key", ""),
         temperature=params.get("temperature", 0.1),
         progress_callback=update_job_progress,
         name=params.get("name"),
@@ -1358,8 +1374,6 @@ async def handle_evaluate_adversarial(job_id, params: dict, *, tenant_id: uuid.U
         retry_eval_ids=params.get("retry_eval_ids"),
         source_run_id=params.get("source_run_id"),
         kaira_timeout=params.get("kaira_timeout", 120),
-        azure_endpoint=params.get("azure_endpoint", ""),
-        api_version=params.get("api_version", ""),
         eval_run_id=params.get("eval_run_id"),
     )
     return result
@@ -1521,11 +1535,20 @@ async def handle_generate_evaluator_draft(job_id, params: dict, *, tenant_id: uu
     except (ValueError, TypeError):
         draft_job_id = None
 
+    provider = params.get("provider") or ""
+    model = params.get("model") or ""
+    if not provider or not model:
+        raise ValueError(
+            "generate-evaluator-draft requires 'provider' and 'model' in job params"
+        )
+
     result = await generate_evaluator_draft(
         prompt=prompt,
         app_id=app_id,
         tenant_id=str(tenant_id),
         user_id=str(user_id),
+        provider=provider,
+        model=model,
         rule_catalog=rule_catalog,
         job_id=draft_job_id,
     )
@@ -1650,9 +1673,9 @@ async def handle_populate_cost_rollup(job_id, params: dict, *, tenant_id: uuid.U
     schedule_app_id="",
     schedule_label="Signal derivation",
     schedule_description=(
-        "Runs every enabled analytics.signal_definition across all tenants, "
-        "deriving analytics.fact_lead_signal rows from the normalized "
-        "dim/fact surfaces."
+        "Runs every enabled scheduled_scan analytics.signal_definition across "
+        "all tenants, deriving analytics.fact_lead_signal rows from the "
+        "normalized dim/fact surfaces."
     ),
     schedule_default_params={},
     schedule_platform_managed=True,
@@ -1793,6 +1816,68 @@ async def handle_run_workflow(job_id, params: dict, *, tenant_id: uuid.UUID, use
 
 
 @register_job_handler(
+    "finalize-run-cancel",
+    queue_class="standard",
+    priority=5,
+    retry_safe=True,
+)
+async def handle_finalize_run_cancel(
+    job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID,
+) -> dict:
+    """Invoke provider cancel APIs for an already-Stopped run and write audits.
+
+    The synchronous DB flip happened in run_terminator; this job only fans the
+    provider calls out asynchronously. Idempotent on run.cancel_finalized_at.
+    """
+    from app.services.orchestration.cancel.finalize_run_cancel import (
+        run_finalize_run_cancel,
+    )
+
+    run_id_raw = params.get("run_id")
+    if not run_id_raw:
+        raise ValueError("run_id is required")
+    run_id = uuid.UUID(str(run_id_raw))
+
+    async with async_session() as db:
+        await run_finalize_run_cancel(db, run_id=run_id, tenant_id=tenant_id)
+        await db.commit()
+        return {"status": "finalized", "run_id": str(run_id)}
+
+
+@register_job_handler(
+    "orchestration-waiting-tail-sweep",
+    queue_class="standard",
+    priority=10,
+    retry_safe=True,
+    # Platform-wide daily seal across all tenants (app_id=""). platform_managed so
+    # the user-facing registry doesn't advertise a workload users can't create
+    # (ScheduledJobCreate enforces app_id min_length=1); the seed path writes the
+    # system-tenant row directly.
+    schedulable=True,
+    schedule_app_id="",
+    schedule_label="Waiting-tail TTL sweep",
+    schedule_description=(
+        "Aborts recipients still waiting after a workflow run completed beyond its TTL. "
+        "Seed creates a default 02:00 UTC schedule under the system tenant."
+    ),
+    schedule_default_params={},
+    schedule_platform_managed=True,
+)
+async def handle_waiting_tail_sweep(
+    job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID,
+) -> dict:
+    """Abort recipients parked in 'waiting' past their completed run's TTL."""
+    from app.services.orchestration.cancel.waiting_tail_sweep import (
+        sweep_waiting_tail_ttl,
+    )
+
+    async with async_session() as db:
+        swept = await sweep_waiting_tail_ttl(db)
+        await db.commit()
+        return {"recipients_aborted": swept}
+
+
+@register_job_handler(
     "fire-orchestration-trigger",
     queue_class="standard",
     priority=5,
@@ -1917,153 +2002,79 @@ async def handle_resume_waiting_cohorts(
         return {"resumed": n}
 
 
-@register_job_handler(
-    "poll-bolna-executions",
-    queue_class="standard",
-    priority=4,
-    retry_safe=True,
-)
-async def handle_poll_bolna_executions_deprecated(
-    job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID
-) -> dict:
-    """Deprecated stub for the retired every-minute Bolna sweeper.
+async def _emit_scheduled_job_failed(
+    *,
+    tenant_id: uuid.UUID,
+    definition_id: uuid.UUID,
+    run_id: uuid.UUID,
+    error_message: str | None,
+    completed_at: datetime | None,
+) -> None:
+    """Fan a SCHEDULED_JOB_FAILED event out via the mail subsystem."""
+    from zoneinfo import ZoneInfo
 
-    Kept registered so any cron-fired jobs still in the queue from the
-    pre-cutover deploy don't dead-letter. New polling is per-correlation
-    (see ``poll-bolna-correlation``)."""
-    return {
-        "status": "deprecated",
-        "reason": (
-            "poll-bolna-executions has been replaced by per-correlation "
-            "polling (poll-bolna-correlation)."
-        ),
-    }
+    from app.models.scheduled_job import ScheduledJobDefinition
+    from app.services.mail.event_pipeline import EventType, emit_event
 
-
-@register_job_handler(
-    "orchestration-anomaly-sweep",
-    queue_class="standard",
-    priority=4,
-    retry_safe=True,
-    schedulable=True,
-    schedule_app_id="",
-    schedule_label="Orchestration · anomaly sweep (off by default)",
-    schedule_description=(
-        "Off-by-default safety net for the per-correlation Bolna polling "
-        "chain. Re-enqueues a fresh polling job for any open Bolna row "
-        "older than 6 hours that has no live polling chain. Flip "
-        "``enabled`` only if an orphan is observed in production."
-    ),
-    schedule_default_params={},
-    schedule_platform_managed=True,
-)
-async def handle_orchestration_anomaly_sweep(
-    job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID
-) -> dict:
-    """Find orphan Bolna correlations (open rows older than 6 h with no
-    live polling job) and re-enqueue a fresh polling chain for each.
-
-    The schedule row is seeded with ``enabled=False`` — runs only on
-    manual fire-now or after an operator flips it on. Daily 03:00 UTC
-    when enabled. Per-correlation polling chains (``poll-bolna-correlation``)
-    self-terminate when reconciliation completes; this sweep exists for
-    the rare case where the chain breaks before the row reconciles."""
-    from datetime import timedelta as _td
-    from app.constants import SYSTEM_USER_ID
-    from app.services.orchestration.dispatch.bolna_poller import (
-        find_orphan_correlations,
+    failed_at = completed_at or datetime.now(timezone.utc)
+    failed_at_display = failed_at.astimezone(ZoneInfo("Asia/Kolkata")).strftime(
+        "%d %b %Y, %H:%M IST"
     )
-    from app.services.orchestration.dispatch.resume_enqueue import (
-        enqueue_bolna_correlation_poll,
+    error_summary_raw = error_message or ""
+    truncated = len(error_summary_raw) > 500
+    error_summary_display = (
+        f"{error_summary_raw[:500]}…" if truncated else error_summary_raw
     )
 
-    async with async_session() as db:
-        orphans = await find_orphan_correlations(db, older_than=_td(hours=6))
-        re_enqueued = 0
-        for orphan in orphans:
-            # Anomaly sweep enqueues under the system user — we don't
-            # have a run_id handy and the polling job doesn't need one
-            # to do its work (it joins by correlation id, not run).
-            new_id = await enqueue_bolna_correlation_poll(
-                db,
-                tenant_id=orphan.tenant_id,
-                app_id=orphan.app_id,
-                connection_id=orphan.connection_id,
-                correlation_id=orphan.correlation_id,
-                kind=orphan.kind,
-                user_id=SYSTEM_USER_ID,
-                initial_delay_seconds=5,
+    app_base = (settings.APP_BASE_URL or "").rstrip("/")
+    job_url = (
+        f"{app_base}/admin/scheduled-jobs"
+        f"?history={definition_id}&run={run_id}"
+    )
+
+    async with async_session() as db3:
+        # Tenant-filtered load — never resolve a definition owned by
+        # another tenant even if IDs were crossed.
+        defn = await db3.scalar(
+            select(ScheduledJobDefinition).where(
+                ScheduledJobDefinition.id == definition_id,
+                ScheduledJobDefinition.tenant_id == tenant_id,
             )
-            if new_id is not None:
-                re_enqueued += 1
-        await db.commit()
-        return {
-            "orphans_found": len(orphans),
-            "re_enqueued": re_enqueued,
-        }
+        )
+        job_name = defn.name if defn else "(removed schedule)"
+        await emit_event(
+            db3,
+            tenant_id=tenant_id,
+            event_type=EventType.SCHEDULED_JOB_FAILED,
+            payload={
+                "job_name": job_name,
+                "run_id": str(run_id),
+                "failed_at_display": failed_at_display,
+                "error_summary": error_summary_display,
+                "job_url": job_url,
+            },
+            resource_type="scheduled_job_definition",
+            resource_id=definition_id,
+            correlation_id=str(run_id),
+        )
+        await db3.commit()
 
 
 @register_job_handler(
-    "poll-bolna-correlation",
+    "send-mail",
     queue_class="standard",
-    priority=4,
-    retry_safe=True,
+    priority=20,
+    retry_safe=False,
 )
-async def handle_poll_bolna_correlation(
-    job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID
+async def handle_send_mail(
+    job_id, params: dict, *, tenant_id: uuid.UUID, user_id: uuid.UUID,
 ) -> dict:
-    """Per-correlation Bolna poll tick (replaces the every-minute cron).
+    """Render + send + log a transactional email via the mail subsystem."""
+    from app.services.mail.send_mail_job import run_send_mail_job
 
-    The dispatch node enqueues this job once per distinct correlation id
-    (execution_id for singles, batch_id for batches). The handler fetches
-    upstream, runs terminal events through ``bolna_reconciler.apply_event``,
-    and either re-enqueues itself with backoff or terminates the chain
-    when no rows remain open.
-    """
-    from app.services.orchestration.dispatch.bolna_poller import (
-        poll_correlation_once,
+    return await run_send_mail_job(
+        job_id, params, tenant_id=tenant_id, user_id=user_id,
     )
-    from datetime import datetime as _dt
 
-    correlation_id = str(params.get("correlation_id") or "")
-    kind = str(params.get("kind") or "execution")
-    app_id = str(params.get("app_id") or "")
-    connection_id_raw = params.get("connection_id")
-    attempt = int(params.get("attempt") or 1)
-    first_attempt_raw = params.get("first_attempt_at")
-    if not correlation_id or not connection_id_raw:
-        return {"status": "error", "reason": "missing_correlation_or_connection"}
-    try:
-        connection_id = uuid.UUID(str(connection_id_raw))
-    except (TypeError, ValueError):
-        return {"status": "error", "reason": "invalid_connection_id"}
-    first_attempt_at: Optional[datetime] = None
-    if isinstance(first_attempt_raw, str) and first_attempt_raw:
-        try:
-            first_attempt_at = _dt.fromisoformat(first_attempt_raw)
-        except ValueError:
-            first_attempt_at = None
 
-    async with async_session() as db:
-        result = await poll_correlation_once(
-            db,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            app_id=app_id,
-            connection_id=connection_id,
-            correlation_id=correlation_id,
-            kind=kind,
-            attempt=attempt,
-            first_attempt_at=first_attempt_at,
-        )
-        await db.commit()
-        out: dict = {
-            "status": result.status,
-            "attempt": result.attempt,
-            "events_reconciled": result.events_reconciled,
-        }
-        if result.next_attempt is not None:
-            out["next_attempt"] = result.next_attempt
-        if result.error:
-            out["error"] = result.error
-        return out
+

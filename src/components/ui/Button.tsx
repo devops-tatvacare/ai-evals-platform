@@ -2,7 +2,7 @@ import { type ButtonHTMLAttributes, forwardRef } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/utils';
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'danger-outline' | 'warning';
+type ButtonVariant = 'primary' | 'primary-gradient' | 'secondary' | 'ghost' | 'danger' | 'danger-outline' | 'warning';
 export type { ButtonVariant };
 type ButtonSize = 'sm' | 'md' | 'lg';
 
@@ -16,6 +16,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantStyles: Record<ButtonVariant, string> = {
   primary: 'bg-[var(--interactive-primary)] text-[var(--text-on-color)] hover:bg-[var(--interactive-primary-hover)] active:bg-[var(--interactive-primary-active)]',
+  'primary-gradient': 'text-[var(--text-on-color)] shadow-[var(--shadow-brand-cta)] hover:brightness-110 active:brightness-95',
   secondary: 'bg-[var(--interactive-secondary)] text-[var(--text-primary)] hover:bg-[var(--interactive-secondary-hover)] border border-[var(--border-default)]',
   ghost: 'bg-transparent text-[var(--text-primary)] hover:bg-[var(--interactive-secondary)]',
   danger: 'bg-[var(--interactive-danger)] text-[var(--text-on-color)] hover:bg-[var(--interactive-danger-hover)]',
@@ -42,16 +43,20 @@ const iconSizeStyles: Record<ButtonSize, string> = {
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = 'primary', size = 'md', isLoading, disabled, icon: Icon, iconOnly, children, ...props }, ref) => {
+  ({ className, style, variant = 'primary', size = 'md', isLoading, disabled, icon: Icon, iconOnly, children, ...props }, ref) => {
+    const composedStyle = variant === 'primary-gradient'
+      ? { backgroundImage: 'var(--gradient-brand-cta)', ...style }
+      : style;
     return (
       <button
         ref={ref}
         className={cn(
-          'inline-flex items-center justify-center gap-2 rounded-[6px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] disabled:cursor-not-allowed disabled:opacity-50',
+          'inline-flex items-center justify-center gap-2 rounded-[6px] font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand-accent)] disabled:cursor-not-allowed disabled:opacity-50',
           variantStyles[variant],
           iconOnly ? iconOnlySizeStyles[size] : sizeStyles[size],
           className
         )}
+        style={composedStyle}
         disabled={disabled || isLoading}
         {...props}
       >

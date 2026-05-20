@@ -10,6 +10,7 @@ import {
 import { cn, jsonSchemaToOutputFields } from '@/utils';
 import { useAppConfig } from '@/hooks';
 import { useAuthStore } from '@/stores';
+import { useProviderConfigs } from '@/services/api/aiSettingsQueries';
 import { useEvalTemplatesStore } from '@/stores/evalTemplatesStore';
 import { submitAndPollJob } from '@/services/api/jobPolling';
 import { rulesRepository } from '@/services/api';
@@ -108,6 +109,10 @@ export function CreateEvaluatorWizard({
 }: CreateEvaluatorWizardProps) {
   const appConfig = useAppConfig(context.appId);
   const currentUserId = useAuthStore((s) => s.user?.id);
+  // BYOK: provider is no longer per-user. Find the first enabled+validated
+  // provider whose curated_models contain the picked `modelId`; the
+  // generate-evaluator-draft job needs both provider + model in params.
+  const { data: providerConfigs = [] } = useProviderConfigs();
   const [currentStep, setCurrentStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDrafting, setIsDrafting] = useState(false);
@@ -358,9 +363,24 @@ export function CreateEvaluatorWizard({
     }
     setIsDrafting(true);
     try {
+      const provider = providerConfigs.find(
+        (c) =>
+          c.isEnabled &&
+          c.validationStatus === 'ok' &&
+          c.curatedModels.includes(modelId),
+      )?.provider;
+      if (!provider) {
+        notificationService.warning(
+          `No configured provider exposes model "${modelId}". Ask an admin to enable a provider and add the model to its curated list in AI Settings.`,
+        );
+        setIsDrafting(false);
+        return;
+      }
       const job = await submitAndPollJob('generate-evaluator-draft', {
         prompt,
         app_id: context.appId,
+        provider,
+        model: modelId,
       });
 
       if (job.status !== 'completed' || !job.result) {

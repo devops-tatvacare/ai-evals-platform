@@ -7,7 +7,9 @@ import {
   ConfirmDialog,
   TableToolbar,
   DataTable,
+  RowActionsMenu,
   type ColumnDef,
+  type RowAction,
 } from '@/components/ui';
 import { rolesApi } from '@/services/api/rolesApi';
 import type { RoleResponse } from '@/services/api/rolesApi';
@@ -29,6 +31,7 @@ export function RolesTab() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const loadRoles = useCallback(async () => {
     try {
@@ -149,35 +152,39 @@ export function RolesTab() {
     },
     {
       key: 'actions',
-      header: '',
+      header: 'Actions',
       width: 'w-[88px]',
       cellClassName: 'text-right',
+      headerClassName: 'text-right',
       render: (role) => {
         if (role.isSystem || !isOwner) return null;
+        const actions: RowAction[] = [
+          {
+            id: 'edit',
+            icon: Pencil,
+            label: 'Edit role',
+            onClick: () => setEditingRole(role),
+          },
+          {
+            id: 'delete',
+            icon: Trash2,
+            label: 'Delete role',
+            danger: true,
+            disabled: role.userCount > 0,
+            title: role.userCount > 0 ? 'Cannot delete — role has users' : undefined,
+            onClick: () => setDeletingRole(role),
+          },
+        ];
         return (
-          <div className="inline-grid grid-cols-2 gap-1 w-[64px]" onClick={(e) => e.stopPropagation()}>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={Pencil}
-              iconOnly
-              title="Edit role"
-              onClick={() => setEditingRole(role)}
-            />
-            <Button
-              variant="danger"
-              size="sm"
-              icon={Trash2}
-              iconOnly
-              title={role.userCount > 0 ? 'Cannot delete — role has users' : 'Delete role'}
-              disabled={role.userCount > 0}
-              onClick={() => setDeletingRole(role)}
-            />
-          </div>
+          <RowActionsMenu
+            actions={actions}
+            open={openMenuId === role.id}
+            onOpenChange={(next) => setOpenMenuId(next ? role.id : null)}
+          />
         );
       },
     },
-  ], [appNames, isOwner]);
+  ], [appNames, isOwner, openMenuId]);
 
   if (isLoading) {
     return <LoadingState />;
@@ -227,16 +234,15 @@ export function RolesTab() {
         />
       </div>
 
-      {(isCreateOpen || !!editingRole) && (
-        <RoleEditorPanel
-          role={editingRole}
-          onClose={() => {
-            setIsCreateOpen(false);
-            setEditingRole(null);
-          }}
-          onSaved={loadRoles}
-        />
-      )}
+      <RoleEditorPanel
+        isOpen={isCreateOpen || !!editingRole}
+        role={editingRole}
+        onClose={() => {
+          setIsCreateOpen(false);
+          setEditingRole(null);
+        }}
+        onSaved={loadRoles}
+      />
       <ConfirmDialog
         isOpen={!!deletingRole}
         title="Delete Role"

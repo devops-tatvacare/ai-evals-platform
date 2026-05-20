@@ -16,8 +16,10 @@
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useLLMSettingsStore, useTaskQueueStore, useJobTrackerStore, hasProviderCredentials } from '@/stores';
-import type { LLMProvider } from '@/types';
+import { useTaskQueueStore, useJobTrackerStore } from '@/stores';
+import { queryClient } from '@/features/orchestration/queries/queryClient';
+import { AI_SETTINGS_QUERY_KEY } from '@/services/api/aiSettingsQueries';
+import type { ProviderConfig } from '@/services/api/aiSettingsApi';
 import { notificationService } from '@/services/notifications';
 import { fetchEvalRuns } from '@/services/api/evalRunsApi';
 import type { EvaluatorDefinition, EvalRun } from '@/types';
@@ -187,11 +189,23 @@ export function useEvaluatorRunner(target: EvaluatorTarget): UseEvaluatorRunnerR
       return;
     }
 
-    // Check credentials for the selected provider (or global default)
-    const llm = useLLMSettingsStore.getState();
-    const activeProvider = (t.provider || llm.provider) as LLMProvider;
-    if (!hasProviderCredentials(activeProvider, llm)) {
-      notificationService.error('Please configure your API key or service account in Settings', 'Credentials Required');
+    // BYOK: credentials live server-side. Gate on the cached AI-Settings
+    // catalogue — only run if the picked provider is enabled+validated.
+    const configs = queryClient.getQueryData<ProviderConfig[]>(AI_SETTINGS_QUERY_KEY) ?? [];
+    const activeProvider = t.provider;
+    const usable = configs.some(
+      (c) =>
+        c.isEnabled &&
+        c.validationStatus === 'ok' &&
+        (!activeProvider || c.provider === activeProvider),
+    );
+    if (!usable) {
+      notificationService.error(
+        activeProvider
+          ? `Provider "${activeProvider}" is not enabled and validated. Ask an admin to set it up in AI Settings.`
+          : 'No LLM provider configured. Ask an admin to set one up in AI Settings.',
+        'Credentials Required',
+      );
       return;
     }
 

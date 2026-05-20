@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import EmailStr
 from sqlalchemy import select, func, delete, case, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,7 @@ from app.auth.context import AuthContext, get_auth_context, require_owner
 from app.auth.permissions import ensure_any_permission, ensure_permissions, require_permission
 from app.auth.utils import create_refresh_token, hash_password, hash_refresh_token
 from app.database import get_db
+from app.routes.auth import _check_allowed_domains
 from app.models.invite_link import IdentityInviteLink, InviteSignupMethod, InviteStatus
 from app.services import invite_links as invite_link_service
 from app.models.evaluation_dataset import EvaluationDataset
@@ -28,10 +30,17 @@ from app.models.application_setting import ApplicationSetting
 from app.models.mixins.shareable import Visibility
 from app.models.application_tag import ApplicationTag
 from app.models.user import User, IdentityRefreshToken
+from app.models.role import AccessRole
 from app.models.tenant import Tenant
 from app.models.tenant_config import TenantConfiguration
 from app.schemas.base import CamelModel
 from app.services.audit import write_audit_log
+from app.services.mail import (
+    CallSite,
+    MailNotConfigured,
+    MailSendError,
+    send_mail,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -547,6 +556,26 @@ async def erase_data(
 
 # ── User Management ──────────────────────────────────────────────────────────
 
+async def _resolve_tenant_role(
+    db: AsyncSession, role_id: str, tenant_id: _uuid.UUID
+) -> AccessRole:
+    """Resolve a client-supplied role id to a role in this tenant.
+
+    Raises 400 for a malformed id and 404 for one outside the tenant, so role
+    assignment never 500s on bad input or silently binds another tenant's role.
+    """
+    try:
+        parsed = _uuid.UUID(role_id)
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(400, "Invalid role id")
+    role = await db.scalar(
+        select(AccessRole).where(AccessRole.id == parsed, AccessRole.tenant_id == tenant_id)
+    )
+    if not role:
+        raise HTTPException(404, "Role not found")
+    return role
+
+
 @router.get("/users")
 async def list_users(
     auth: AuthContext = Depends(get_auth_context),
@@ -599,15 +628,25 @@ async def create_user(
     if existing:
         raise HTTPException(400, "A user with this email already exists in this tenant")
 
+    role = await _resolve_tenant_role(db, body.role_id, auth.tenant_id)
+
     user = User(
         tenant_id=auth.tenant_id,
         email=body.email,
         password_hash=hash_password(body.password),
         display_name=body.display_name,
-        role_id=_uuid.UUID(body.role_id),
+        role_id=role.id,
     )
     db.add(user)
     await db.flush()
+
+    from app.services.mail.onboarding import provision_required_subscriptions_for_user
+    await provision_required_subscriptions_for_user(
+        db,
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        user_email=user.email,
+    )
 
     await write_audit_log(
         db,
@@ -668,7 +707,8 @@ async def update_user(
     if body.display_name is not None:
         user.display_name = body.display_name
     if body.role_id is not None:
-        user.role_id = _uuid.UUID(body.role_id)
+        role = await _resolve_tenant_role(db, body.role_id, auth.tenant_id)
+        user.role_id = role.id
     if body.is_active is not None:
         user.is_active = body.is_active
 
@@ -703,7 +743,7 @@ class AdminResetPasswordRequest(CamelModel):
 
 @router.put("/users/{user_id}/password")
 async def admin_reset_password(
-    user_id: str,
+    user_id: _uuid.UUID,
     body: AdminResetPasswordRequest,
     request: Request,
     auth: AuthContext = require_permission('user:reset_password'),
@@ -717,7 +757,7 @@ async def admin_reset_password(
         raise HTTPException(400, detail=strength_error)
 
     user = await db.scalar(
-        select(User).where(User.id == _uuid.UUID(user_id), User.tenant_id == auth.tenant_id)
+        select(User).where(User.id == user_id, User.tenant_id == auth.tenant_id)
     )
     if not user:
         raise HTTPException(404, "User not found")
@@ -749,19 +789,19 @@ async def admin_reset_password(
     )
 
     await db.commit()
-    return {"status": "ok", "id": user_id}
+    return {"status": "ok", "id": str(user_id)}
 
 
 @router.delete("/users/{user_id}")
 async def deactivate_user(
-    user_id: str,
+    user_id: _uuid.UUID,
     request: Request,
     auth: AuthContext = require_permission('user:deactivate'),
     db: AsyncSession = Depends(get_db),
 ):
     """Deactivate a user. Does not delete data."""
     user = await db.scalar(
-        select(User).where(User.id == _uuid.UUID(user_id), User.tenant_id == auth.tenant_id)
+        select(User).where(User.id == user_id, User.tenant_id == auth.tenant_id)
     )
     if not user:
         raise HTTPException(404, "User not found")
@@ -783,25 +823,25 @@ async def deactivate_user(
     )
 
     await db.commit()
-    return {"deactivated": True, "id": user_id}
+    return {"deactivated": True, "id": str(user_id)}
 
 
 @router.delete("/users/{user_id}/permanent")
 async def delete_user_permanently(
-    user_id: str,
+    user_id: _uuid.UUID,
     request: Request,
     auth: AuthContext = require_permission('user:delete'),
     db: AsyncSession = Depends(get_db),
 ):
     """Permanently delete a user and their refresh tokens."""
     user = await db.scalar(
-        select(User).where(User.id == _uuid.UUID(user_id), User.tenant_id == auth.tenant_id)
+        select(User).where(User.id == user_id, User.tenant_id == auth.tenant_id)
     )
     if not user:
         raise HTTPException(404, "User not found")
     if user.id == auth.user_id:
         raise HTTPException(400, "Cannot delete yourself")
-    if user.is_owner:
+    if user.role.is_system and user.role.name == "Owner":
         raise HTTPException(400, "Cannot delete the tenant owner")
 
     # Remove refresh tokens first
@@ -823,7 +863,7 @@ async def delete_user_permanently(
 
     await db.delete(user)
     await db.commit()
-    return {"deleted": True, "id": user_id}
+    return {"deleted": True, "id": str(user_id)}
 
 
 # ── Tenant Management ────────────────────────────────────────────────────────
@@ -882,6 +922,10 @@ class CreateInviteLinkRequest(CamelModel):
     # but the create route hard-rejects ``sso`` until the SSO redemption
     # path lands. Persisted as the row's ``signup_method`` once allowed.
     signup_method: Literal['password', 'sso'] = 'password'
+    # Optional auto-send: when set, the invite link is emailed to this
+    # address via the mail subsystem. Send failure does not roll back invite.
+    recipient_email: Optional[EmailStr] = None
+    user_name: Optional[str] = None
 
 
 _INVITE_CREATOR_FALLBACK = "(deleted user)"
@@ -956,6 +1000,8 @@ async def create_invite_link(
         # yet. Hard-reject so an admin can't issue an unredeemable invite.
         raise HTTPException(501, detail="SSO invites are not yet supported")
 
+    role = await _resolve_tenant_role(db, body.role_id, auth.tenant_id)
+
     raw_token, token_hash = create_refresh_token()  # reuse same random+hash pattern
 
     invite = IdentityInviteLink(
@@ -963,7 +1009,7 @@ async def create_invite_link(
         created_by=auth.user_id,
         token_hash=token_hash,
         label=body.label,
-        role_id=_uuid.UUID(body.role_id),
+        role_id=role.id,
         max_uses=body.max_uses,
         expires_at=datetime.now(timezone.utc) + timedelta(hours=body.expires_in_hours),
         status=InviteStatus.active,
@@ -973,17 +1019,9 @@ async def create_invite_link(
     db.add(invite)
     await db.flush()
 
-    await write_audit_log(
-        db,
-        tenant_id=auth.tenant_id,
-        actor_id=auth.user_id,
-        action="invite_link:create",
-        entity_type="invite_link",
-        entity_id=invite.id,
-        after_state={"label": invite.label, "role_id": str(invite.role_id)},
-        request=request,
-    )
-
+    # Commit the invite first so the email send never references an
+    # uncommitted row. The audit row is written after the email-status is
+    # known, in its own commit — best-effort, never atomic with the invite.
     await db.commit()
     await db.refresh(invite)
 
@@ -991,14 +1029,103 @@ async def create_invite_link(
     base = _invite_base_url(request)
     invite_url = f"{base}/signup?invite={raw_token}"
 
+    email_status = await _maybe_send_invite_email(
+        db,
+        tenant_id=auth.tenant_id,
+        recipient_email=body.recipient_email,
+        user_name=body.user_name,
+        invite_url=invite_url,
+        inviter_email=auth.email,
+        expires_at=invite.expires_at,
+        correlation_id=str(invite.id),
+    )
+
+    try:
+        await write_audit_log(
+            db,
+            tenant_id=auth.tenant_id,
+            actor_id=auth.user_id,
+            action="invite_link:create",
+            entity_type="invite_link",
+            entity_id=invite.id,
+            after_state={
+                "label": invite.label,
+                "role_id": str(invite.role_id),
+                "email_recipient": body.recipient_email,
+                "email_status": email_status,
+            },
+            request=request,
+        )
+        await db.commit()
+    except Exception as exc:  # don't orphan the invite if audit fails
+        await db.rollback()
+        logger.error(
+            "invite_audit_write_failed",
+            extra={"invite_id": str(invite.id), "error": str(exc)},
+        )
+
     resp = _invite_response(invite, auth.email)
     resp["inviteUrl"] = invite_url
+    resp["emailStatus"] = email_status
     return resp
+
+
+EmailStatus = Literal[
+    "not_requested", "sent", "recipient_rejected", "not_configured", "failed"
+]
+
+
+async def _maybe_send_invite_email(
+    db: AsyncSession,
+    *,
+    tenant_id: _uuid.UUID,
+    recipient_email: Optional[str],
+    user_name: Optional[str],
+    invite_url: str,
+    inviter_email: str,
+    expires_at: datetime,
+    correlation_id: str,
+) -> EmailStatus:
+    """Render + send the signup invite if a recipient is set; return the emailStatus."""
+    if not recipient_email:
+        return "not_requested"
+    try:
+        await _check_allowed_domains(recipient_email, tenant_id, db)
+    except HTTPException:
+        logger.info(
+            "invite_email_recipient_rejected",
+            extra={"invite_id": correlation_id, "recipient": recipient_email},
+        )
+        return "recipient_rejected"
+    from zoneinfo import ZoneInfo
+    try:
+        await send_mail(
+            db,
+            tenant_id=tenant_id,
+            call_site=CallSite.SIGNUP_INVITE,
+            recipient=recipient_email,
+            context={
+                "user_name": user_name or recipient_email.split("@")[0],
+                "inviter_name": inviter_email,
+                "invite_url": invite_url,
+                "expires_at_display": expires_at.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d %b %Y, %H:%M IST"),
+            },
+            correlation_id=correlation_id,
+        )
+        await db.commit()
+        return "sent"
+    except MailNotConfigured:
+        return "not_configured"
+    except MailSendError as exc:
+        await db.commit()  # persist the failure log row
+        logger.warning("invite_email_failed", extra={"error": str(exc), "invite_id": correlation_id})
+        return "failed"
 
 
 @router.get("/invite-links")
 async def list_invite_links(
     status: Literal['active', 'terminal', 'all'] = Query('active'),
+    include: Optional[str] = Query(None, description="csv of optional projections; 'latestSend' joins mail_send_log"),
     auth: AuthContext = require_permission('invite_link:manage'),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1008,6 +1135,10 @@ async def list_invite_links(
     - ``active`` (default) → only invites currently usable.
     - ``terminal`` → revoked / expired / exhausted.
     - ``all`` → everything.
+
+    ``include=latestSend`` joins the most recent ``mail_send_log`` row per
+    invite (by ``correlation_id == invite.id``) so the list view can render
+    "Sent to" + "Last send status" columns without an N+1.
 
     Lazy correction: rows still labelled ``active`` whose timer has run
     out or whose ``max_uses`` is hit get persisted to their derived
@@ -1032,15 +1163,73 @@ async def list_invite_links(
     elif status == 'terminal':
         rows = [(invite, email) for invite, email in rows if invite.status != InviteStatus.active]
 
-    return [
-        _invite_response(invite, _resolve_creator_email(invite, email))
-        for invite, email in rows
-    ]
+    include_str = include if isinstance(include, str) else ""
+    includes = {p.strip() for p in include_str.split(",") if p.strip()}
+    latest_send_by_invite: dict[str, dict] = {}
+    if "latestSend" in includes and rows:
+        latest_send_by_invite = await _load_latest_invite_sends(
+            db,
+            tenant_id=auth.tenant_id,
+            invite_ids=[str(invite.id) for invite, _ in rows],
+        )
+
+    payload = []
+    for invite, email in rows:
+        item = _invite_response(invite, _resolve_creator_email(invite, email))
+        if "latestSend" in includes:
+            latest = latest_send_by_invite.get(str(invite.id))
+            item["latestSendRecipient"] = latest["recipient"] if latest else None
+            item["latestSendStatus"] = latest["status"] if latest else None
+            item["latestSendAt"] = latest["sent_at"].isoformat() if latest else None
+        payload.append(item)
+    return payload
+
+
+async def _load_latest_invite_sends(
+    db: AsyncSession,
+    *,
+    tenant_id: _uuid.UUID,
+    invite_ids: list[str],
+) -> dict[str, dict]:
+    """Return ``{invite_id: latest mail_send_log row}`` per invite, tenant-filtered."""
+    from app.models.mail_send_log import MailSendLog
+
+    rn = func.row_number().over(
+        partition_by=MailSendLog.correlation_id,
+        order_by=MailSendLog.sent_at.desc(),
+    ).label("rn")
+    inner = (
+        select(
+            MailSendLog.correlation_id.label("correlation_id"),
+            MailSendLog.recipient.label("recipient"),
+            MailSendLog.status.label("status"),
+            MailSendLog.sent_at.label("sent_at"),
+            rn,
+        )
+        .where(MailSendLog.tenant_id == tenant_id)
+        .where(MailSendLog.correlation_id.in_(invite_ids))
+        .subquery()
+    )
+    stmt = select(
+        inner.c.correlation_id,
+        inner.c.recipient,
+        inner.c.status,
+        inner.c.sent_at,
+    ).where(inner.c.rn == 1)
+    rows = (await db.execute(stmt)).all()
+    return {
+        row.correlation_id: {
+            "recipient": row.recipient,
+            "status": row.status,
+            "sent_at": row.sent_at,
+        }
+        for row in rows
+    }
 
 
 @router.post("/invite-links/{link_id}/revoke")
 async def revoke_invite_link_v2(
-    link_id: str,
+    link_id: _uuid.UUID,
     request: Request,
     auth: AuthContext = require_permission('invite_link:manage'),
     db: AsyncSession = Depends(get_db),
@@ -1055,7 +1244,7 @@ async def revoke_invite_link_v2(
         invite = await invite_link_service.revoke_invite_link(
             db,
             tenant_id=auth.tenant_id,
-            invite_id=_uuid.UUID(link_id),
+            invite_id=link_id,
             actor_id=auth.user_id,
             actor_email=auth.email,
             request=request,
@@ -1074,7 +1263,7 @@ async def revoke_invite_link_v2(
 
 @router.delete("/invite-links/{link_id}")
 async def hard_delete_invite_link(
-    link_id: str,
+    link_id: _uuid.UUID,
     request: Request,
     auth: AuthContext = require_permission('invite_link:delete'),
     db: AsyncSession = Depends(get_db),
@@ -1089,7 +1278,7 @@ async def hard_delete_invite_link(
         await invite_link_service.hard_delete_invite_link(
             db,
             tenant_id=auth.tenant_id,
-            invite_id=_uuid.UUID(link_id),
+            invite_id=link_id,
             actor_id=auth.user_id,
             request=request,
         )
@@ -1104,12 +1293,12 @@ async def hard_delete_invite_link(
             ),
         )
     await db.commit()
-    return {"deleted": True, "id": link_id}
+    return {"deleted": True, "id": str(link_id)}
 
 
 @router.get("/invite-links/{link_id}/uses")
 async def list_invite_link_uses(
-    link_id: str,
+    link_id: _uuid.UUID,
     auth: AuthContext = require_permission('invite_link:manage'),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1121,7 +1310,7 @@ async def list_invite_link_uses(
     """
     invite = await db.scalar(
         select(IdentityInviteLink).where(
-            IdentityInviteLink.id == _uuid.UUID(link_id),
+            IdentityInviteLink.id == link_id,
             IdentityInviteLink.tenant_id == auth.tenant_id,
         )
     )

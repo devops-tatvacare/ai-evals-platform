@@ -9,7 +9,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { OfflineBanner, ShortcutsHelpModal } from '@/components/feedback';
 import { MiniPlayerConnector } from '@/features/transcript';
 import { cn } from '@/utils';
-import { firstAccessibleAppId, inferAppIdFromPath } from '@/config/routes';
+import { firstAccessibleAppId, inferAppIdFromPath, isAdminPath } from '@/config/routes';
 import { JobCompletionWatcher } from '@/components/JobCompletionWatcher';
 import { NewBatchEvalOverlay, NewAdversarialOverlay } from '@/features/evalRuns/components';
 import { NewInsideSalesEvalOverlay } from '@/features/insideSalesEval';
@@ -169,7 +169,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           )}
         </div>
       )}
-      <ChatWidget />
+      {!isAdminPath(location.pathname) && <ChatWidget />}
       <OfflineBanner />
       <ShortcutsHelpModal
         isOpen={showShortcutsHelp}

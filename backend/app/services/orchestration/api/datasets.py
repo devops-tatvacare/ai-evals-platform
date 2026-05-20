@@ -12,9 +12,8 @@ Tenant scoping is mandatory on every read and write. Cross-tenant access
 returns ``DatasetNotFound`` rather than leaking a row from another tenant.
 
 Delete safety: a dataset (or one of its versions) cannot be removed while a
-``WorkflowVersion.definition`` references it via a
-``source.cohort_query`` node whose ``config.source_ref`` equals
-``"dataset.<version_id>"``. The check is shared between
+``WorkflowVersion.definition`` references it via a ``source.dataset`` node
+whose ``config.dataset_version_id`` matches. The check is shared between
 ``delete_dataset`` and ``delete_version``.
 
 Mirrors the pattern from ``services.orchestration.api.connections``: helpers
@@ -23,7 +22,6 @@ to HTTP. Service stays HTTP-agnostic.
 """
 from __future__ import annotations
 
-import io
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -40,7 +38,7 @@ from app.models.orchestration import (
     Workflow,
     WorkflowVersion,
 )
-from app.services.orchestration.datasets.csv_importer import parse_csv
+from app.services.orchestration.datasets.dataset_validator import ImportedDataset
 
 
 class DatasetNotFound(LookupError):
@@ -54,7 +52,7 @@ class DatasetConflict(ValueError):
 class DatasetInUse(ValueError):
     """Delete rejected because at least one published or draft workflow
     version still references this dataset (or one of its versions) via a
-    ``source.cohort_query`` node ``config.source_ref``.
+    ``source.dataset`` node ``config.dataset_version_id``.
 
     Carries ``workflow_ids`` and ``workflow_names`` so the route layer can
     build a useful 409 detail.
@@ -79,6 +77,7 @@ def _serialize_dataset(
     row: CohortDataset,
     *,
     latest_version: Optional[CohortDatasetVersion] = None,
+    version_ids: Optional[list[uuid.UUID]] = None,
 ) -> dict[str, Any]:
     return {
         "id": row.id,
@@ -95,6 +94,7 @@ def _serialize_dataset(
         "latest_version": (
             _serialize_version(latest_version) if latest_version is not None else None
         ),
+        "version_ids": list(version_ids or []),
     }
 
 
@@ -168,22 +168,15 @@ async def _find_workflow_bindings(
     version_ids: list[uuid.UUID],
 ) -> list[tuple[uuid.UUID, str]]:
     """Return ``(workflow_id, workflow_name)`` for every WorkflowVersion whose
-    definition contains a ``source.cohort_query`` node bound to one of the
-    given dataset version ids via ``config.source_ref == 'dataset.<vid>'``.
+    definition contains a ``source.dataset`` node bound to one of the given
+    dataset version ids via ``config.dataset_version_id``.
 
     Tenant-scoped via ``Workflow.tenant_id``. Result is deduped by workflow id.
     """
     if not version_ids:
         return []
 
-    target_refs = {f"dataset.{vid}" for vid in version_ids}
-
-    # TODO(perf): switch to a JSONB-side filter (e.g. a path expression on
-    # ``definition->'nodes'`` selecting nodes where ``type =
-    # 'source.cohort_query'`` AND ``config->>'source_ref' IN (...)``) once the
-    # query shape stabilises. For now, pulling the full definition for every
-    # tenant workflow version and filtering in Python is correct and the row
-    # counts are small in the early-Phase-12 deployment.
+    target_ids = {str(vid) for vid in version_ids}
     stmt = (
         select(WorkflowVersion.workflow_id, WorkflowVersion.definition, Workflow.name)
         .join(Workflow, Workflow.id == WorkflowVersion.workflow_id)
@@ -207,13 +200,13 @@ async def _find_workflow_bindings(
         for node in nodes:
             if not isinstance(node, dict):
                 continue
-            if node.get("type") != "source.cohort_query":
+            if node.get("type") != "source.dataset":
                 continue
             cfg = node.get("config")
             if not isinstance(cfg, dict):
                 continue
-            source_ref = cfg.get("source_ref")
-            if isinstance(source_ref, str) and source_ref in target_refs:
+            version_id = cfg.get("dataset_version_id")
+            if isinstance(version_id, str) and version_id in target_ids:
                 seen.add(workflow_id)
                 out.append((workflow_id, workflow_name))
                 break
@@ -290,9 +283,10 @@ async def list_datasets(
     if not datasets:
         return []
 
-    # Second round-trip: latest version per dataset_id via DISTINCT ON ordered by
-    # version_number DESC. One query, no N+1. Tenant filter is implicit through
-    # the dataset_id IN (...) restriction (datasets already pre-filtered).
+    # Second round-trip: fetch the (id, version_number, dataset_id) of
+    # every version owned by these datasets. Derive (a) the latest row per
+    # dataset and (b) the full list of version_ids the picker needs to
+    # reverse-resolve an older pinned version.
     dataset_ids = [d.id for d in datasets]
     versions_stmt = (
         select(CohortDatasetVersion)
@@ -301,14 +295,19 @@ async def list_datasets(
             CohortDatasetVersion.dataset_id,
             CohortDatasetVersion.version_number.desc(),
         )
-        .distinct(CohortDatasetVersion.dataset_id)
     )
-    latest_rows = (await db.execute(versions_stmt)).scalars().all()
-    latest_by_ds: dict[uuid.UUID, CohortDatasetVersion] = {
-        v.dataset_id: v for v in latest_rows
-    }
+    version_rows = (await db.execute(versions_stmt)).scalars().all()
+    latest_by_ds: dict[uuid.UUID, CohortDatasetVersion] = {}
+    ids_by_ds: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for v in version_rows:
+        latest_by_ds.setdefault(v.dataset_id, v)
+        ids_by_ds.setdefault(v.dataset_id, []).append(v.id)
     return [
-        _serialize_dataset(d, latest_version=latest_by_ds.get(d.id))
+        _serialize_dataset(
+            d,
+            latest_version=latest_by_ds.get(d.id),
+            version_ids=ids_by_ds.get(d.id, []),
+        )
         for d in datasets
     ]
 
@@ -328,7 +327,11 @@ async def get_dataset(
         )
     ).scalars().all()
     latest = versions[0] if versions else None
-    payload = _serialize_dataset(dataset, latest_version=latest)
+    payload = _serialize_dataset(
+        dataset,
+        latest_version=latest,
+        version_ids=[v.id for v in versions],
+    )
     payload["versions"] = [_serialize_version(v) for v in versions]
     return payload
 
@@ -403,31 +406,21 @@ async def import_version(
     *,
     tenant_id: uuid.UUID,
     dataset_id: uuid.UUID,
-    file_handle: io.TextIOBase,
+    imported: ImportedDataset,
+    source_type: str,
     source_filename: Optional[str],
     source_byte_size: Optional[int],
     id_strategy: str,
     id_column: Optional[str],
     imported_by: uuid.UUID,
 ) -> dict[str, Any]:
-    # Lock the dataset row so concurrent uploads serialise on version_number.
     dataset = await _load_dataset(
         db, tenant_id=tenant_id, dataset_id=dataset_id, for_update=True,
     )
 
-    # Parse first — if the CSV is malformed we don't want to bump the
-    # version number. CsvImportError propagates untouched (route maps to 400).
-    imported = parse_csv(
-        file_handle, id_strategy=id_strategy, id_column=id_column,
-    )
-
     next_version = (
         await db.scalar(
-            select(
-                # COALESCE(MAX(version_number), 0) + 1
-                # — done in Python from MAX() to keep the SQL portable.
-                CohortDatasetVersion.version_number
-            )
+            select(CohortDatasetVersion.version_number)
             .where(CohortDatasetVersion.dataset_id == dataset.id)
             .order_by(CohortDatasetVersion.version_number.desc())
             .limit(1)
@@ -440,7 +433,7 @@ async def import_version(
         dataset_id=dataset.id,
         tenant_id=tenant_id,
         version_number=next_version,
-        source_type="csv",
+        source_type=source_type,
         source_filename=source_filename,
         source_byte_size=source_byte_size,
         row_count=len(imported.rows),

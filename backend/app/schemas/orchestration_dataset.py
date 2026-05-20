@@ -2,8 +2,8 @@
 
 Schemas describe shape only. Tenant scoping, version increment, and
 workflow-binding checks live in
-``app.services.orchestration.api.datasets``. CSV parsing lives in
-``app.services.orchestration.datasets.csv_importer``.
+``app.services.orchestration.api.datasets``. Per-format parsers live under
+``app.services.orchestration.datasets`` and dispatch via ``format_registry``.
 
 Naming follows project convention: snake_case in Python, camelCase on the
 wire via ``CamelModel`` / ``CamelORMModel`` from ``app.schemas.base``.
@@ -67,8 +67,20 @@ class DatasetResponse(CamelORMModel):
     # Used by the list endpoint so the table can show "row count / imported_at"
     # without a per-row round-trip.
     latest_version: Optional[DatasetVersionResponse] = None
+    # All version ids — lets the source.dataset picker resolve which
+    # dataset owns a pinned (possibly older) version_id.
+    version_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 class DatasetDetailResponse(DatasetResponse):
     # Full version history, ordered version_number DESC.
     versions: list[DatasetVersionResponse] = Field(default_factory=list)
+
+
+class DatasetFormatResponse(CamelModel):
+    source_type: str
+    extensions: list[str]
+    mime_types: list[str]
+    label: str
+    max_upload_bytes: int
+    supports_client_preview: bool

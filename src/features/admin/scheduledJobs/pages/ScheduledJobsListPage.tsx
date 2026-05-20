@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import cronstrue from 'cronstrue';
 import { CalendarClock, History, Play, Pencil, Trash2, Plus, Lock } from 'lucide-react';
 import { Button, EmptyState, ConfirmDialog, DataTable, type ColumnDef, LoadingState, PageSurface, RowActionsMenu, Tooltip } from '@/components/ui';
@@ -87,11 +88,31 @@ export function ScheduledJobsListPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [historyScheduleId, setHistoryScheduleId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Deep-link from email CTAs (?history=<defId>&run=<runId>). The notify
+  // mail subsystem links here so an admin landing from a failure alert
+  // opens the matching run history overlay directly.
+  const historyParam = searchParams.get('history');
+  const focusFireId = searchParams.get('run');
 
   useEffect(() => {
     void load();
     void loadRegistry();
   }, [load, loadRegistry]);
+
+  useEffect(() => {
+    if (historyParam && schedules.some((s) => s.id === historyParam)) {
+      setHistoryScheduleId(historyParam);
+    }
+  }, [historyParam, schedules]);
+
+  const clearDeepLinkParams = useCallback(() => {
+    if (!historyParam && !focusFireId) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('history');
+    next.delete('run');
+    setSearchParams(next, { replace: true });
+  }, [historyParam, focusFireId, searchParams, setSearchParams]);
 
   const deleteTarget = useMemo(
     () => schedules.find((s) => s.id === deletingId) ?? null,
@@ -392,7 +413,11 @@ export function ScheduledJobsListPage() {
       {historyTarget ? (
         <ScheduleHistoryOverlay
           schedule={historyTarget}
-          onClose={() => setHistoryScheduleId(null)}
+          focusFireId={focusFireId}
+          onClose={() => {
+            setHistoryScheduleId(null);
+            clearDeepLinkParams();
+          }}
         />
       ) : null}
 

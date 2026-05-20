@@ -1,14 +1,9 @@
 import { useState, useMemo, useId } from "react";
 import { Search, X, PlayCircle } from "lucide-react";
-import { Button, LLMConfigSection, RightSlideOverShell } from "@/components/ui";
-import {
-  useEvaluatorsStore,
-  LLM_PROVIDERS,
-  useLLMSettingsStore,
-  hasProviderCredentials,
-} from "@/stores";
+import { Button, LlmModelSelect, RightSlideOverShell, type LlmModelSelectValue } from "@/components/ui";
+import { useEvaluatorsStore } from "@/stores";
+import type { LLMProvider } from "@/services/api/aiSettingsApi";
 import { cn } from "@/utils";
-import type { LLMProvider } from "@/types";
 
 export interface RunAllSelection {
   evaluatorIds: string[];
@@ -30,27 +25,12 @@ export function RunAllOverlay({ open, onClose, onRun, initialSelectedIds }: RunA
     () => new Set(initialSelectedIds ?? evaluators.map((e) => e.id)),
   );
   const [search, setSearch] = useState("");
-  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(
-    LLM_PROVIDERS[0].value,
-  );
-  const [selectedModel, setSelectedModel] = useState("");
-
-  // Credential gating
-  const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
-  const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
-  const azureOpenaiApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
-  const azureOpenaiEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
-  const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
-  const saConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
-  const storeSlice = {
-    geminiApiKey,
-    openaiApiKey,
-    azureOpenaiApiKey,
-    azureOpenaiEndpoint,
-    anthropicApiKey,
-    _serviceAccountConfigured: saConfigured,
-  };
-  const credentialsReady = hasProviderCredentials(selectedProvider, storeSlice);
+  // TODO: split into two pickers (audio_transcription + chat_text) per
+  // docs/plans/2026-05-18-llm-call-site-architecture/phase-3-frontend-and-capability-gating.md
+  // Task 5; UX shift gated on design review.
+  const [llmPick, setLlmPick] = useState<LlmModelSelectValue | null>(null);
+  const selectedProvider = (llmPick?.provider ?? '') as LLMProvider | '';
+  const selectedModel = llmPick?.model ?? '';
 
   // Sync selection when overlay opens with new evaluator list
   const evaluatorIds = evaluators.map((e) => e.id).join(",");
@@ -72,7 +52,7 @@ export function RunAllOverlay({ open, onClose, onRun, initialSelectedIds }: RunA
   }, [evaluators, search]);
 
   function handleSubmit() {
-    if (selected.size === 0 || !selectedModel) return;
+    if (selected.size === 0 || !selectedModel || !selectedProvider) return;
     onRun({
       evaluatorIds: Array.from(selected),
       provider: selectedProvider,
@@ -126,21 +106,7 @@ export function RunAllOverlay({ open, onClose, onRun, initialSelectedIds }: RunA
 
         {/* LLM config */}
         <div className="shrink-0 px-6 py-4 border-b border-[var(--border-subtle)]">
-          <LLMConfigSection
-            provider={selectedProvider}
-            onProviderChange={(p) => {
-              setSelectedProvider(p);
-              setSelectedModel("");
-            }}
-            model={selectedModel}
-            onModelChange={setSelectedModel}
-          />
-          {selectedModel && !credentialsReady && (
-            <p className="mt-2 text-xs text-[var(--color-warning)]">
-              No credentials configured for this provider. Set up an API key in
-              Settings.
-            </p>
-          )}
+          <LlmModelSelect callSite="chat_text" value={llmPick} onChange={setLlmPick} />
         </div>
 
         {/* Search + select all/none */}
@@ -240,9 +206,7 @@ export function RunAllOverlay({ open, onClose, onRun, initialSelectedIds }: RunA
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={
-                selected.size === 0 || !selectedModel || !credentialsReady
-              }
+              disabled={selected.size === 0 || !selectedModel || !selectedProvider}
               icon={PlayCircle}
             >
               Run {selected.size} Evaluator{selected.size !== 1 ? "s" : ""}

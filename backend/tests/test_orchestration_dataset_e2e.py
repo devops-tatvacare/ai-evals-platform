@@ -6,8 +6,8 @@ Live-DB smoke test for the full path:
   2. Import a CSV (3 rows) producing v1 with rows in
      ``orchestration.cohort_dataset_rows``.
   3. Resolve the source via ``resolve_source`` (Task 5 hybrid resolver).
-  4. Compile a ``source.cohort_query`` config against it (Task 6 JSONB
-     branch).
+  4. Compile a ``source.dataset`` node config against it via the JSONB
+     dataset branch of the shared cohort-query compiler.
   5. Execute the emitted INSERT-from-SELECT against
      ``orchestration.workflow_run_recipient_states``.
   6. Read back the inserted recipient states and assert recipient_ids
@@ -19,7 +19,6 @@ stays inside the savepoint per the dataset-routes test pattern.
 """
 from __future__ import annotations
 
-import io
 import uuid
 
 import pytest
@@ -32,6 +31,7 @@ from app.models.orchestration import (
     WorkflowRunRecipientState,
     WorkflowVersion,
 )
+from app.services.orchestration.datasets.csv_importer import parse_csv
 from app.services.orchestration.api.datasets import (
     create_dataset,
     import_version,
@@ -59,6 +59,10 @@ async def _seed_workflow_version_run(
     app_id: str,
     source_ref: str,
 ):
+    # source_ref is expected as "dataset.<uuid>"; extract the version id for
+    # the source.dataset node config.
+    assert source_ref.startswith("dataset.")
+    dataset_version_id = source_ref.split(".", 1)[1]
     workflow = Workflow(
         id=uuid.uuid4(),
         tenant_id=tenant_id,
@@ -81,8 +85,8 @@ async def _seed_workflow_version_run(
             "nodes": [
                 {
                     "id": "src",
-                    "type": "source.cohort_query",
-                    "config": {"source_ref": source_ref},
+                    "type": "source.dataset",
+                    "config": {"dataset_version_id": dataset_version_id},
                 },
                 {"id": "done", "type": "sink.complete", "config": {}},
             ],
@@ -144,7 +148,11 @@ async def test_e2e_csv_to_recipient_states_column_id_strategy(
         db_session,
         tenant_id=tenant_id,
         dataset_id=ds["id"],
-        file_handle=io.StringIO(CSV_3ROWS),
+        imported=parse_csv(
+            CSV_3ROWS.encode("utf-8"),
+            id_strategy="column", id_column="recipient_id",
+        ),
+        source_type="csv",
         source_filename="cohort.csv",
         source_byte_size=len(CSV_3ROWS),
         id_strategy="column",
@@ -228,7 +236,11 @@ async def test_e2e_csv_to_recipient_states_uuid_id_strategy(
     version = await import_version(
         db_session,
         tenant_id=tenant_id, dataset_id=ds["id"],
-        file_handle=io.StringIO(csv_no_id),
+        imported=parse_csv(
+            csv_no_id.encode("utf-8"),
+            id_strategy="uuid", id_column=None,
+        ),
+        source_type="csv",
         source_filename="cohort.csv", source_byte_size=len(csv_no_id),
         id_strategy="uuid", id_column=None,
         imported_by=user_id,
@@ -275,7 +287,11 @@ async def test_e2e_jsonb_filter_narrows_cohort(
     version = await import_version(
         db_session,
         tenant_id=tenant_id, dataset_id=ds["id"],
-        file_handle=io.StringIO(CSV_3ROWS),
+        imported=parse_csv(
+            CSV_3ROWS.encode("utf-8"),
+            id_strategy="column", id_column="recipient_id",
+        ),
+        source_type="csv",
         source_filename="cohort.csv", source_byte_size=len(CSV_3ROWS),
         id_strategy="column", id_column="recipient_id",
         imported_by=user_id,

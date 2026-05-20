@@ -99,6 +99,10 @@ class BackfillRequest:
     cost_budget_usd: float
     started_after: datetime | None
     ended_before: datetime | None
+    # Optional overrides since Phase 2; the resolver falls back to the
+    # lead_signal_extraction call-site default when these are blank.
+    provider: str = ""
+    model: str = ""
 
 
 def parse_request(params: dict[str, Any]) -> BackfillRequest:
@@ -142,6 +146,11 @@ def parse_request(params: dict[str, Any]) -> BackfillRequest:
     if cost_budget_usd <= 0:
         raise ValueError("cost_budget_usd must be positive")
 
+    # ``provider`` / ``model`` are optional overrides; the resolver falls back
+    # to the ``lead_signal_extraction`` call-site default when both are blank.
+    provider = str(params.get("provider") or "").strip()
+    model = str(params.get("model") or "").strip()
+
     return BackfillRequest(
         app_id=app_id,
         dry_run=bool(params.get("dry_run")),
@@ -150,6 +159,8 @@ def parse_request(params: dict[str, Any]) -> BackfillRequest:
         cost_budget_usd=cost_budget_usd,
         started_after=_coerce_optional_datetime(params.get("started_after")),
         ended_before=_coerce_optional_datetime(params.get("ended_before")),
+        provider=provider,
+        model=model,
     )
 
 
@@ -387,6 +398,8 @@ async def run_backfill_lead_signals(
             tenant_id=tenant_id,
             user_id=user_id,
             app_id=request.app_id,
+            provider=request.provider,
+            model=request.model,
             job_id=_coerce_uuid(job_id),
             counters=counters,
         )
@@ -471,43 +484,46 @@ async def _build_llm_provider(
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
     app_id: str,
+    provider: str,
+    model: str,
     job_id: uuid.UUID | None,
     counters: _BackfillCounters,
 ) -> Any:
-    """Build a LoggingLLMWrapper around the tenant/user's configured provider.
+    """Build a LoggingLLMWrapper around the tenant's configured provider.
 
     Imports stay local so test stubs can monkeypatch this function without
     pulling in the full LLM stack at module import time.
     """
     from app.services.evaluators.llm_base import LoggingLLMWrapper, create_llm_provider
     from app.services.evaluators.runner_utils import make_usage_callback
-    from app.services.evaluators.settings_helper import get_llm_settings_from_db
+    from app.services.llm_credentials import resolve_llm_call
 
-    db_settings = await get_llm_settings_from_db(
-        tenant_id=str(tenant_id),
-        user_id=str(user_id),
-        auth_intent="managed_job",
-    )
-    provider_name = db_settings.get("provider", "gemini")
-    model_name = db_settings.get("selected_model", "")
-    api_key = db_settings.get("api_key", "")
-    if not model_name:
-        raise ValueError(
-            "backfill-lead-signals requires an LLM model in user settings"
+    async with async_session() as db:
+        resolved = await resolve_llm_call(
+            db, tenant_id, "lead_signal_extraction",
+            provider_override=provider or None,
+            model_override=model or None,
         )
-    if not api_key and not db_settings.get("service_account_path"):
-        raise ValueError(
-            "backfill-lead-signals requires LLM credentials in user settings"
+
+    factory_kwargs: dict[str, Any] = {}
+    if resolved.provider == "azure_openai":
+        factory_kwargs["azure_endpoint"] = resolved.credentials.extra_config.get("base_url") or ""
+        factory_kwargs["api_version"] = (
+            resolved.api_version
+            or resolved.credentials.extra_config.get("api_version")
+            or "2025-03-01-preview"
         )
 
     inner = create_llm_provider(
-        provider=provider_name,
-        model_name=model_name,
-        api_key=api_key,
-        service_account_path=db_settings.get("service_account_path", ""),
-        azure_endpoint=db_settings.get("azure_endpoint", ""),
-        api_version=db_settings.get("api_version", ""),
+        provider=resolved.provider,
+        model_name=resolved.model,
+        api_key=resolved.credentials.secret.get("api_key", ""),
+        service_account_path=resolved.credentials.service_account_path or "",
+        **factory_kwargs,
     )
+    # downstream attribution should reflect what we actually used
+    provider = resolved.provider
+    model = resolved.model
 
     base_usage_cb = make_usage_callback(
         tenant_id=tenant_id,

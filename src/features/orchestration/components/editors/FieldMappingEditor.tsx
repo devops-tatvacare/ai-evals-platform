@@ -32,17 +32,7 @@ const SOURCE_OPTIONS = [
   { value: 'static',  label: 'Static value' },
 ];
 
-/**
- * Phase 11 (Commit 2) — field-mapping editor for mutation nodes.
- *
- * Used by `crm.lsq_log_activity.fields`, `clinical.emr_write.structured_fields`,
- * and any future mutation node that needs structured target-field bindings.
- *
- * Authors map a target field to either a recipient payload field or a
- * static value. The persisted shape mirrors the existing
- * ``VariableMappingField`` row structure — different verbiage, same
- * contract — so backend consumers can share resolution logic.
- */
+/** Field-mapping editor — author maps a target field to a recipient payload field or static value. */
 export function FieldMappingEditor({ value, onChange, targetLabel }: Props) {
   const rows = value ?? [];
   const update = (idx: number, patch: Partial<FieldMapping>) => {

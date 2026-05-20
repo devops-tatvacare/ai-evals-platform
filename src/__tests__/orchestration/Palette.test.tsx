@@ -61,7 +61,7 @@ describe('Palette', () => {
   it('groups by Phase 11 displayCategory with neutral labels', () => {
     useWorkflowBuilderStore.getState().setPaletteCatalog([
       {
-        nodeType: 'crm.send_wati',
+        nodeType: 'core.webhook_out',
         workflowType: 'crm',
         displayLabel: 'WhatsApp Dispatch',
         displayCategory: 'dispatch',

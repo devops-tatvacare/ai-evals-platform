@@ -4,11 +4,10 @@ import { authApi } from '@/services/api/authApi';
 import { useListingsStore } from '@/stores/listingsStore';
 import { useEvaluatorsStore } from '@/stores/evaluatorsStore';
 import { useChatStore } from '@/stores/chatStore';
-import { useLLMSettingsStore } from '@/stores/llmSettingsStore';
 import { useAppSettingsStore } from '@/stores/appSettingsStore';
+import { queryClient } from '@/features/orchestration/queries/queryClient';
 import { useAppStore } from '@/stores/appStore';
 import { useJobTrackerStore } from '@/stores/jobTrackerStore';
-import { useCrossRunStore } from '@/stores/crossRunStore';
 import { useGlobalSettingsStore } from '@/stores/globalSettingsStore';
 import { useTaskQueueStore } from '@/stores/taskQueueStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -56,11 +55,12 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     useListingsStore.getState().reset();
     useEvaluatorsStore.getState().reset();
     useChatStore.getState().reset();
-    useLLMSettingsStore.getState().reset();
     useAppSettingsStore.getState().reset();
+    // Drop the cached admin AI-Settings list so the next user doesn't briefly
+    // see the previous tenant's provider catalogue.
+    queryClient.removeQueries({ queryKey: ['admin', 'ai-settings'] });
     useAppStore.getState().reset();
     useJobTrackerStore.getState().reset();
-    useCrossRunStore.getState().reset();
     useGlobalSettingsStore.getState().reset();
     useTaskQueueStore.getState().reset();
     useUIStore.getState().reset();

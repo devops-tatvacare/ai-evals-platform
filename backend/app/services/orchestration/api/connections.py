@@ -17,7 +17,6 @@ Tenant + app scoping is enforced on every read and write. The unique index
 from __future__ import annotations
 
 import secrets
-import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
@@ -29,17 +28,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.mixins.shareable import Visibility
 from app.models.provider_connection import ProviderConnection
-from app.services.orchestration.integrations.bolna import (
-    BolnaService,
-    BolnaServiceError,
-)
-from app.services.orchestration.integrations.wati import WatiService, WatiServiceError
+from app.utils.secret_masking import mask_secret_value
 from app.services.orchestration.connections import crypto, health, provider_specs
 
 
+from app.services.orchestration.adapters import capability_for_vendor
+
 WEBHOOK_PATH_PREFIX = "/api/orchestration/webhooks"
-_AGENT_VARIABLE_CACHE_TTL_SECONDS = 3600.0
-_AGENT_VARIABLE_CACHE: dict[tuple[str, ...], tuple[float, list[str]]] = {}
 
 
 class ConnectionError_(ValueError):
@@ -94,22 +89,13 @@ def resolve_base_url(origin_header: Optional[str]) -> str:
 def _compose_webhook_url(
     provider: str, token: Optional[str], base_url: str,
 ) -> Optional[str]:
-    """Build the public webhook URL for one provider connection.
-
-    The base URL is resolved by the route handler via ``resolve_base_url``
-    (Origin header > ``APP_BASE_URL``). The token alone resolves to one
-    ``provider_connections`` row at receive time
-    (``_resolve_connection_by_token``), which is where tenant + app
-    scoping happens; the URL itself never embeds tenant or app
-    identifiers, so passing it to a provider dashboard is safe.
-
-    Returns a relative path when ``base_url`` is empty — the frontend's
-    ``toAbsoluteWebhookUrl`` will then resolve against
-    ``window.location.origin``.
-    """
+    """Build ``/{capability}/{vendor}/{token}`` from the adapter registry; None when unregistered."""
     if not token:
         return None
-    path = f"{WEBHOOK_PATH_PREFIX}/{provider}/{token}"
+    capability = capability_for_vendor(provider)
+    if capability is None:
+        return None
+    path = f"{WEBHOOK_PATH_PREFIX}/{capability}/{provider}/{token}"
     return f"{base_url}{path}" if base_url else path
 
 
@@ -119,28 +105,9 @@ def _redact(provider: str, config: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in config.items() if k not in secret}
 
 
-_PREVIEW_BULLET = "•" * 4  # "••••"
-
-
 def _mask_secret_value(value: Any) -> str:
-    """Return a partial-reveal preview of one stored secret value.
-
-    Rules (per product call, 2026-05-05):
-      * value length >= 8: ``XYZA``…••••…``WXYZ`` (first 4 + last 4).
-      * value length 1–7: ``••••WXYZ`` (last 4 only — short keys would
-        otherwise leak themselves; clamps to whatever's available).
-      * empty / non-string: empty string — caller should drop the entry so
-        the FE doesn't render "no preview" noise.
-
-    The preview is a UI hint, not a credential. The full value is never
-    decryptable from it (4 + 4 chars on a 32+ char key reveals < 25 % of
-    the entropy and never the secret-bearing middle). Mirrors how Stripe /
-    AWS / GitHub render stored API keys."""
-    if not isinstance(value, str) or value == "":
-        return ""
-    if len(value) >= 8:
-        return f"{value[:4]}{_PREVIEW_BULLET}{value[-4:]}"
-    return f"{_PREVIEW_BULLET}{value[-4:]}"
+    """Backward-compatible local alias for existing orchestration tests."""
+    return mask_secret_value(value)
 
 
 def _secret_previews(provider: str, config: dict[str, Any]) -> dict[str, str]:
@@ -202,97 +169,6 @@ def _serialize(row: ProviderConnection, base_url: str) -> dict[str, Any]:
 
 def serialize_connection(row: ProviderConnection, base_url: str) -> dict[str, Any]:
     return _serialize(row, base_url)
-
-
-def _unique_names(values: Iterable[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for raw in values:
-        name = raw.strip()
-        if not name or name in seen:
-            continue
-        seen.add(name)
-        out.append(name)
-    return out
-
-
-def _coerce_variable_names(value: Any) -> list[str]:
-    if isinstance(value, str):
-        return _unique_names([value])
-    if isinstance(value, list):
-        out: list[str] = []
-        for item in value:
-            if isinstance(item, str):
-                out.append(item)
-                continue
-            if isinstance(item, dict):
-                for key in ("name", "variable", "key", "agent_variable", "parameter"):
-                    raw = item.get(key)
-                    if isinstance(raw, str):
-                        out.append(raw)
-                        break
-        return _unique_names(out)
-    return []
-
-
-def _extract_variable_names(payload: Any) -> list[str]:
-    """Best-effort parser for provider metadata responses.
-
-    We only inspect keys that commonly carry variable/parameter metadata and
-    recurse through a small set of container keys so unrelated strings in the
-    response do not leak into the picker.
-    """
-    candidate_keys = {
-        "variables",
-        "prompt_variables",
-        "agent_variables",
-        "dynamic_variables",
-        "parameters",
-        "placeholders",
-    }
-    container_keys = {
-        "data",
-        "result",
-        "response",
-        "agent",
-        "template",
-        "templates",
-        "messageTemplates",
-        "message_templates",
-    }
-    queue: list[Any] = [payload]
-    found: list[str] = []
-    while queue:
-        current = queue.pop(0)
-        if isinstance(current, dict):
-            for key, value in current.items():
-                if key in candidate_keys:
-                    found.extend(_coerce_variable_names(value))
-                elif key in container_keys and isinstance(value, (dict, list)):
-                    queue.append(value)
-        elif isinstance(current, list):
-            for item in current:
-                if isinstance(item, dict):
-                    queue.append(item)
-    return _unique_names(found)
-
-
-def _get_cached_variables(key: tuple[str, ...]) -> Optional[list[str]]:
-    cached = _AGENT_VARIABLE_CACHE.get(key)
-    if cached is None:
-        return None
-    expires_at, values = cached
-    if expires_at <= time.monotonic():
-        _AGENT_VARIABLE_CACHE.pop(key, None)
-        return None
-    return list(values)
-
-
-def _put_cached_variables(key: tuple[str, ...], values: list[str]) -> None:
-    _AGENT_VARIABLE_CACHE[key] = (
-        time.monotonic() + _AGENT_VARIABLE_CACHE_TTL_SECONDS,
-        list(values),
-    )
 
 
 async def _load_owned(
@@ -564,91 +440,7 @@ async def get_agent_variables(
     *,
     tenant_id: uuid.UUID,
     connection_id: uuid.UUID,
-    agent_id: Optional[str] = None,
-    template_name: Optional[str] = None,
 ) -> dict[str, Any]:
+    """Vendor-agnostic variable-introspection stub — empty list until P2/P3 adapters re-register."""
     row = await _load_owned(db, tenant_id=tenant_id, connection_id=connection_id)
-    cache_key = (
-        str(row.id),
-        row.provider,
-        agent_id or "",
-        template_name or "",
-        row.updated_at.isoformat() if row.updated_at else "",
-    )
-    cached = _get_cached_variables(cache_key)
-    if cached is not None:
-        return {"provider": row.provider, "variables": cached, "error": None}
-
-    config = crypto.decrypt(row.config_encrypted)
-    try:
-        variables = await _provider_agent_variables(
-            row=row,
-            config=config,
-            agent_id=agent_id,
-            template_name=template_name,
-        )
-    except (BolnaServiceError, WatiServiceError) as exc:
-        # Provider responded (or refused to respond) — that's a config /
-        # data condition, not a server bug. Surface the message inline so
-        # the variable-mapping UI can keep accepting manual entries while
-        # the operator chases down the upstream issue. Do NOT cache; a
-        # transient 4xx shouldn't poison the picker for the cache TTL.
-        return {"provider": row.provider, "variables": [], "error": str(exc)}
-    _put_cached_variables(cache_key, variables)
-    return {"provider": row.provider, "variables": variables, "error": None}
-
-
-async def _provider_agent_variables(
-    *,
-    row: ProviderConnection,
-    config: dict[str, Any],
-    agent_id: Optional[str],
-    template_name: Optional[str],
-) -> list[str]:
-    if row.provider == "bolna":
-        return await _agent_variables_for_bolna(config=config, agent_id=agent_id)
-    if row.provider == "wati":
-        return await _agent_variables_for_wati(config=config, template_name=template_name)
-    return []
-
-
-async def _agent_variables_for_bolna(
-    *,
-    config: dict[str, Any],
-    agent_id: Optional[str],
-) -> list[str]:
-    """Variable names declared by the selected live Bolna agent."""
-    if not agent_id:
-        return []
-
-    service = BolnaService(
-        base_url=str(config.get("base_url") or ""),
-        api_key=str(config.get("api_key") or ""),
-    )
-    payload = await service.get_agent(agent_id=agent_id)
-    return _extract_variable_names(payload)
-
-
-async def _agent_variables_for_wati(
-    *,
-    config: dict[str, Any],
-    template_name: Optional[str],
-) -> list[str]:
-    """Variable names declared by the selected live WATI template."""
-    if not template_name:
-        return []
-
-    service = WatiService(
-        base_url=str(config.get("base_url") or ""),
-        wati_tenant_id=str(config.get("wati_tenant_id") or ""),
-        api_token=str(config.get("api_token") or ""),
-    )
-    summaries = await service.list_message_templates_summary()
-    for summary in summaries:
-        if summary.get("name") != template_name:
-            continue
-        parameters = summary.get("parameters")
-        if not isinstance(parameters, list):
-            return []
-        return [str(item) for item in parameters if isinstance(item, str) and item]
-    return []
+    return {"provider": row.provider, "variables": [], "error": None}

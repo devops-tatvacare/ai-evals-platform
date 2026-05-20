@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { useLLMSettingsStore, useTaskQueueStore, useAppStore, useJobTrackerStore, useGlobalSettingsStore } from "@/stores";
+import { useTaskQueueStore, useAppStore, useJobTrackerStore, useGlobalSettingsStore } from "@/stores";
 import { notificationService } from "@/services/notifications";
 import {
   logEvaluationStart,
@@ -100,8 +100,8 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
         });
       }
 
-      // Use model from config (overlay selection) or fall back to store default
-      const llm = useLLMSettingsStore.getState();
+      // BYOK: the overlay (EvaluationOverlay) is the single source of truth
+      // for provider+model. No more global store fallback.
       const selectedModel = config?.model || '';
 
       if (!listing.audioFile) {
@@ -184,7 +184,7 @@ export function useAIEvaluation(): UseAIEvaluationReturn {
           app_id: appId,
           normalize_original: config?.normalizeOriginal ?? false,
           prerequisites: config?.prerequisites ?? {},
-          provider: config?.provider || llm.provider,
+          provider: config?.provider || '',
           model: selectedModel,
           thinking: config?.thinking ?? "low",
           timeouts: {

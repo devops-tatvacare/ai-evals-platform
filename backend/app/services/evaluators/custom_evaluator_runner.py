@@ -12,7 +12,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import select, update
 
@@ -255,27 +255,35 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
     # ── Generate JSON schema from output definition ──────────────
     json_schema = generate_json_schema(output_schema_data)
 
-    # ── Resolve LLM settings ────────────────────────────────────
-    from app.services.evaluators.settings_helper import get_llm_settings_from_db
-    db_settings = await get_llm_settings_from_db(
-        tenant_id=tenant_id, user_id=user_id,
-        app_id=None, key="llm-settings", auth_intent="managed_job",
-        provider_override=params.get("provider") or None,
-    )
+    # ── Resolve LLM credentials ─────────────────────────────────
+    from app.services.llm_credentials import resolve_llm_call
 
-    model = params.get("model") or evaluator.model_id or db_settings["selected_model"]
-    factory_kwargs = {}
-    if db_settings["provider"] == "azure_openai":
-        factory_kwargs["azure_endpoint"] = db_settings.get("azure_endpoint", "")
-        factory_kwargs["api_version"] = db_settings.get("api_version", "")
+    call_site = params.get("call_site") or "chat_text"
+    provider_override = params.get("provider")
+    model_override = params.get("model") or evaluator.model_id or None
+    async with async_session() as db:
+        resolved = await resolve_llm_call(
+            db, tenant_id, call_site,
+            provider_override=provider_override or None,
+            model_override=model_override,
+        )
+
+    factory_kwargs: dict[str, Any] = {}
+    if resolved.provider == "azure_openai":
+        factory_kwargs["azure_endpoint"] = resolved.credentials.extra_config.get("base_url") or ""
+        factory_kwargs["api_version"] = resolved.api_version or resolved.credentials.extra_config.get("api_version", "2025-03-01-preview")
     inner = create_llm_provider(
-        provider=db_settings["provider"],
-        api_key=db_settings["api_key"],
-        model_name=model,
+        provider=resolved.provider,
+        api_key=resolved.credentials.secret.get("api_key", ""),
+        model_name=resolved.model,
         temperature=0.2,
-        service_account_path=db_settings.get("service_account_path", ""),
+        service_account_path=resolved.credentials.service_account_path or "",
         **factory_kwargs,
     )
+    # Remaining downstream code reads `model` / `provider_name`; re-bind to the
+    # resolved values so attribution stays consistent with what we executed.
+    model = resolved.model
+    provider_name = resolved.provider
     usage_cb = make_usage_callback(
         tenant_id=tenant_id,
         user_id=user_id,
@@ -299,9 +307,9 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
         "template_id": str(evaluator.template_id) if evaluator.template_id else None,
         "template_branch_key": evaluator.template_branch_key,
         "model_id": model,
-        "provider": db_settings["provider"],
+        "provider": resolved.provider,
         "evaluator_name": evaluator.name,
-        "auth_method": db_settings["auth_method"],
+        "auth_method": "service_account" if resolved.credentials.service_account_path else "api_key",
         "thinking": thinking,
     }
 
@@ -310,7 +318,7 @@ async def run_custom_evaluator(job_id, params: dict, *, tenant_id: uuid.UUID, us
         await db.execute(
             update(EvaluationRun).where(EvaluationRun.id == eval_run_id, EvaluationRun.tenant_id == tenant_id).values(
                 config=config_snapshot,
-                llm_provider=db_settings["provider"],
+                llm_provider=resolved.provider,
                 llm_model=model,
             )
         )

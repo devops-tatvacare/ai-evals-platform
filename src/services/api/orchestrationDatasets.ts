@@ -61,10 +61,23 @@ export interface DatasetResponse {
   createdAt: string;
   updatedAt: string;
   latestVersion: DatasetVersionResponse | null;
+  /** All version ids owned by this dataset. Used by the source.dataset
+   *  picker to reverse-resolve which dataset owns a pinned (possibly
+   *  older) version_id without an extra round-trip per row. */
+  versionIds: string[];
 }
 
 export interface DatasetDetailResponse extends DatasetResponse {
   versions: DatasetVersionResponse[];
+}
+
+export interface DatasetFormatResponse {
+  sourceType: string;
+  extensions: string[];
+  mimeTypes: string[];
+  label: string;
+  maxUploadBytes: number;
+  supportsClientPreview: boolean;
 }
 
 export interface CreateDatasetBody {
@@ -150,6 +163,8 @@ export const orchestrationDatasetsApi = {
     }),
   remove: (id: string) =>
     apiRequest<void>(`/api/orchestration/datasets/${id}`, { method: 'DELETE' }),
+  formats: () =>
+    apiRequest<DatasetFormatResponse[]>('/api/orchestration/datasets/formats'),
   uploadVersion: (
     datasetId: string,
     file: File,

@@ -25,6 +25,7 @@ from app.database import get_db
 from app.models.analytics_log import LogFactPopulationRun
 from app.models.analytics_mapping_state import MappingState
 from app.models.analytics_signal_definition import (
+    SIGNAL_EXECUTION_MODES,
     SIGNAL_STRATEGIES,
     SignalDefinition,
 )
@@ -190,6 +191,19 @@ class BackfillLeadSignalsRequest(CamelModel):
     )
     started_after: datetime | None = None
     ended_before: datetime | None = None
+    provider: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "LLM provider id (e.g. 'openai', 'gemini', 'anthropic', 'azure_openai'). "
+            "Must be configured under the tenant in AI Settings."
+        ),
+    )
+    model: str = Field(
+        ...,
+        min_length=1,
+        description="Model name to use for the LLM extraction call.",
+    )
 
     @field_validator("ended_before")
     @classmethod
@@ -613,6 +627,8 @@ async def submit_backfill_lead_signals(
         "ended_before": (
             body.ended_before.isoformat() if body.ended_before else None
         ),
+        "provider": body.provider,
+        "model": body.model,
     }
     try:
         parsed = parse_lead_signals_request(params)
@@ -793,6 +809,7 @@ class SignalDefinitionRow(CamelModel):
     signal_set: str
     strategy: str
     source_surface: str
+    execution_mode: str
     definition: dict[str, Any]
     enabled: bool
     is_system_template: bool
@@ -809,12 +826,20 @@ class CreateSignalDefinitionRequest(CamelModel):
     signal_set: str = Field(..., min_length=1, max_length=64)
     strategy: str = Field(..., description=f"one of {SIGNAL_STRATEGIES}")
     source_surface: str = Field(..., min_length=1, max_length=128)
+    execution_mode: str = Field(
+        default="scheduled_scan",
+        description=f"one of {SIGNAL_EXECUTION_MODES}",
+    )
     definition: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
 
 
 class UpdateSignalDefinitionRequest(CamelModel):
     source_surface: str | None = Field(default=None, min_length=1, max_length=128)
+    execution_mode: str | None = Field(
+        default=None,
+        description=f"one of {SIGNAL_EXECUTION_MODES}",
+    )
     definition: dict[str, Any] | None = None
     enabled: bool | None = None
 
@@ -829,6 +854,7 @@ def _signal_definition_to_row(row: SignalDefinition) -> SignalDefinitionRow:
         signal_set=row.signal_set,
         strategy=row.strategy,
         source_surface=row.source_surface,
+        execution_mode=row.execution_mode,
         definition=row.definition or {},
         enabled=row.enabled,
         is_system_template=row.tenant_id == SYSTEM_TENANT_ID,
@@ -851,6 +877,27 @@ def _validate_definition_body(strategy: str, definition: dict[str, Any]) -> None
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def _validate_execution_mode(strategy: str, execution_mode: str) -> None:
+    if execution_mode not in SIGNAL_EXECUTION_MODES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"execution_mode must be one of {list(SIGNAL_EXECUTION_MODES)}",
+        )
+    expected_by_strategy = {
+        "rule": "scheduled_scan",
+        "llm_transcript": "eval_run_projection",
+        "llm_profile": "operator_backfill",
+    }
+    expected = expected_by_strategy.get(strategy)
+    if expected is not None and execution_mode != expected:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"strategy {strategy!r} must use execution_mode {expected!r}"
+            ),
+        )
+
+
 async def _write_signal_definition_log(
     db: AsyncSession,
     *,
@@ -868,6 +915,7 @@ async def _write_signal_definition_log(
                 "signal_definition_id": str(row.id),
                 "signal_set": row.signal_set,
                 "strategy": row.strategy,
+                "execution_mode": row.execution_mode,
                 "user_id": str(user_id),
             },
         )
@@ -929,6 +977,7 @@ async def create_signal_definition(
     """Create a signal definition under the operator's tenant. The same
     ``(app_id, signal_set)`` as a system template is a tenant override."""
     _validate_definition_body(body.strategy, body.definition)
+    _validate_execution_mode(body.strategy, body.execution_mode)
     existing = await db.scalar(
         select(SignalDefinition).where(
             SignalDefinition.tenant_id == auth.tenant_id,
@@ -950,6 +999,7 @@ async def create_signal_definition(
         signal_set=body.signal_set,
         strategy=body.strategy,
         source_surface=body.source_surface,
+        execution_mode=body.execution_mode,
         definition=body.definition,
         enabled=body.enabled,
         created_by_user_id=auth.user_id,
@@ -981,6 +1031,9 @@ async def update_signal_definition(
         row.definition = body.definition
     if body.source_surface is not None:
         row.source_surface = body.source_surface
+    if body.execution_mode is not None:
+        _validate_execution_mode(row.strategy, body.execution_mode)
+        row.execution_mode = body.execution_mode
     if body.enabled is not None:
         row.enabled = body.enabled
     row.updated_by_user_id = auth.user_id

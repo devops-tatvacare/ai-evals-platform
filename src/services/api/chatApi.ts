@@ -75,12 +75,59 @@ function toMessage(m: ApiMessage): KairaChatMessage {
   };
 }
 
+export interface ChatSearchHit {
+  sessionId: string;
+  title: string;
+  snippet: string | null;
+  matchedIn: 'title' | 'message';
+  updatedAt: Date;
+}
+
+interface ApiSearchHit {
+  sessionId: string;
+  title: string;
+  snippet: string | null;
+  matchedIn: string;
+  updatedAt: string;
+}
+
 export const chatSessionsRepository = {
   async getAll(appId: AppId, source?: ChatSessionSource): Promise<KairaChatSession[]> {
     let path = withAppId('/api/chat/sessions', appId);
     if (source) path += `&source=${encodeURIComponent(source)}`;
     const data = await apiRequest<ApiSession[]>(path);
     return data.map(toSession);
+  },
+
+  async listPage(
+    appId: AppId,
+    opts: { source?: ChatSessionSource; q?: string; limit: number; offset: number },
+  ): Promise<KairaChatSession[]> {
+    let path = withAppId('/api/chat/sessions', appId);
+    if (opts.source) path += `&source=${encodeURIComponent(opts.source)}`;
+    const term = opts.q?.trim();
+    if (term) path += `&q=${encodeURIComponent(term)}`;
+    path += `&limit=${opts.limit}&offset=${opts.offset}`;
+    const data = await apiRequest<ApiSession[]>(path);
+    return data.map(toSession);
+  },
+
+  async searchHits(
+    appId: AppId,
+    opts: { source?: ChatSessionSource; q: string; limit: number; offset: number },
+  ): Promise<ChatSearchHit[]> {
+    let path = withAppId('/api/chat/sessions/search', appId);
+    path += `&q=${encodeURIComponent(opts.q.trim())}`;
+    if (opts.source) path += `&source=${encodeURIComponent(opts.source)}`;
+    path += `&limit=${opts.limit}&offset=${opts.offset}`;
+    const data = await apiRequest<ApiSearchHit[]>(path);
+    return data.map((h) => ({
+      sessionId: h.sessionId,
+      title: h.title,
+      snippet: h.snippet,
+      matchedIn: h.matchedIn === 'title' ? 'title' : 'message',
+      updatedAt: new Date(h.updatedAt),
+    }));
   },
 
   async getById(appId: AppId, id: string): Promise<KairaChatSession | undefined> {

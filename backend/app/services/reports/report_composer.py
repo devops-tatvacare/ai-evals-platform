@@ -21,12 +21,14 @@ from app.services.reports.contracts.report_sections import (
     FlagsSection,
     FrictionAnalysisSection,
     HeatmapSection,
+    InsightPanelsSection,
     IssuesRecommendationsSection,
     MetricBreakdownSection,
     NarrativeSection,
     PlatformReportSection,
     PromptGapAnalysisSection,
     SummaryCardsSection,
+    TrendChartSection,
 )
 from app.services.reports.contracts.run_report import (
     PlatformReportMetadata,
@@ -49,6 +51,8 @@ _SECTION_MODEL_BY_TYPE = {
     'exemplars': ExemplarsSection,
     'prompt_gap_analysis': PromptGapAnalysisSection,
     'callout': CalloutSection,
+    'trend_chart': TrendChartSection,
+    'insight_panels': InsightPanelsSection,
 }
 
 

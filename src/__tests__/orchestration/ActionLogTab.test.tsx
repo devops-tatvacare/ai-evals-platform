@@ -28,8 +28,8 @@ describe('ActionLogTab', () => {
       {
         id: 'action-1',
         recipientId: 'lead-1',
-        channel: 'bolna',
-        actionType: 'bolna_queued',
+        channel: 'voice',
+        actionType: 'voice_queued',
         status: 'success',
         idempotencyKey: 'idem-1',
         payload: {},
@@ -71,8 +71,8 @@ describe('ActionLogTab', () => {
         {
           id: 'action-1',
           recipientId: 'lead-1',
-          channel: 'bolna',
-          actionType: 'bolna_queued',
+          channel: 'voice',
+          actionType: 'voice_queued',
           status: 'success',
           idempotencyKey: 'idem-1',
           payload: {},
@@ -92,8 +92,8 @@ describe('ActionLogTab', () => {
         {
           id: 'action-1',
           recipientId: 'lead-1',
-          channel: 'bolna',
-          actionType: 'bolna_queued',
+          channel: 'voice',
+          actionType: 'voice_queued',
           status: 'success',
           idempotencyKey: 'idem-1',
           payload: {},

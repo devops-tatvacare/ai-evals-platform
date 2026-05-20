@@ -1,0 +1,2091 @@
+{
+  "$defs": {
+    "Artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "chart",
+            "kpi",
+            "summary",
+            "table",
+            "empty"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "discriminator": {
+            "mapping": {
+              "chart": "#/$defs/ChartPayloadChart",
+              "empty": "#/$defs/ChartPayloadEmpty",
+              "kpi": "#/$defs/ChartPayloadKpi",
+              "summary": "#/$defs/ChartPayloadSummary",
+              "table": "#/$defs/ChartPayloadTable"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ChartPayloadChart"
+            },
+            {
+              "$ref": "#/$defs/ChartPayloadKpi"
+            },
+            {
+              "$ref": "#/$defs/ChartPayloadSummary"
+            },
+            {
+              "$ref": "#/$defs/ChartPayloadTable"
+            },
+            {
+              "$ref": "#/$defs/ChartPayloadEmpty"
+            }
+          ],
+          "title": "Payload"
+        }
+      },
+      "required": [
+        "kind",
+        "payload"
+      ],
+      "title": "Artifact",
+      "type": "object"
+    },
+    "AssistantTextPart": {
+      "additionalProperties": false,
+      "properties": {
+        "chat_session_id": {
+          "title": "Chat Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "final": {
+          "default": false,
+          "title": "Final",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "assistant_text",
+          "default": "assistant_text",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "chat_session_id",
+        "seq",
+        "created_at"
+      ],
+      "title": "AssistantTextPart",
+      "type": "object"
+    },
+    "Attempt": {
+      "additionalProperties": false,
+      "description": "One submit_sql attempt \u2014 populated regardless of outcome; threads into the next retry brief.",
+      "properties": {
+        "error_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Message"
+        },
+        "row_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Count"
+        },
+        "sql": {
+          "title": "Sql",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "empty",
+            "bouncer_rejected_before",
+            "bouncer_rejected_after",
+            "execution_error",
+            "prepare_failed",
+            "tool_args_invalid"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "verdict": {
+          "$ref": "#/$defs/Verdict"
+        }
+      },
+      "required": [
+        "sql",
+        "verdict",
+        "status"
+      ],
+      "title": "Attempt",
+      "type": "object"
+    },
+    "AvailableJoin": {
+      "additionalProperties": false,
+      "description": "One declared relationship between two catalog tables.",
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/JoinKey"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "many_table": {
+          "title": "Many Table",
+          "type": "string"
+        },
+        "one_table": {
+          "title": "One Table",
+          "type": "string"
+        }
+      },
+      "required": [
+        "many_table",
+        "one_table"
+      ],
+      "title": "AvailableJoin",
+      "type": "object"
+    },
+    "ChartPart": {
+      "additionalProperties": false,
+      "description": "Typed chart payload artifact.",
+      "properties": {
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        },
+        "chat_session_id": {
+          "title": "Chat Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "chart",
+          "default": "chart",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "chat_session_id",
+        "seq",
+        "created_at",
+        "artifact"
+      ],
+      "title": "ChartPart",
+      "type": "object"
+    },
+    "ChartPayloadChart": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Data",
+          "type": "array"
+        },
+        "kind": {
+          "const": "chart",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "CG_EMPTY",
+                "CG_SINGLE_VALUE",
+                "CG_FIELD_CARD",
+                "CG_NO_MEASURE",
+                "CG_ALL_IDS",
+                "CG_DEGENERATE_MEASURE",
+                "CG_HIGH_CARD",
+                "CG_EMIT_FAILED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "source_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Question"
+        },
+        "spec": {
+          "additionalProperties": true,
+          "title": "Spec",
+          "type": "object"
+        },
+        "sql_query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sql Query"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "tsType": "unknown",
+        "warning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Warning"
+        }
+      },
+      "required": [
+        "kind",
+        "spec",
+        "data"
+      ],
+      "title": "ChartPayloadChart",
+      "type": "object"
+    },
+    "ChartPayloadEmpty": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "empty",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "CG_EMPTY",
+                "CG_SINGLE_VALUE",
+                "CG_FIELD_CARD",
+                "CG_NO_MEASURE",
+                "CG_ALL_IDS",
+                "CG_DEGENERATE_MEASURE",
+                "CG_HIGH_CARD",
+                "CG_EMIT_FAILED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "source_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Question"
+        },
+        "sql_query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sql Query"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "tsType": "unknown",
+        "warning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Warning"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ChartPayloadEmpty",
+      "type": "object"
+    },
+    "ChartPayloadKpi": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "kpi",
+          "title": "Kind",
+          "type": "string"
+        },
+        "kpi": {
+          "$ref": "#/$defs/ChartPayloadKpiValue"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "CG_EMPTY",
+                "CG_SINGLE_VALUE",
+                "CG_FIELD_CARD",
+                "CG_NO_MEASURE",
+                "CG_ALL_IDS",
+                "CG_DEGENERATE_MEASURE",
+                "CG_HIGH_CARD",
+                "CG_EMIT_FAILED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "source_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Question"
+        },
+        "sql_query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sql Query"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "tsType": "unknown",
+        "warning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Warning"
+        }
+      },
+      "required": [
+        "kind",
+        "kpi"
+      ],
+      "title": "ChartPayloadKpi",
+      "type": "object"
+    },
+    "ChartPayloadKpiValue": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "enum": [
+            "integer",
+            "decimal",
+            "percent",
+            "currency",
+            "duration_ms"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "semantic_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Semantic Type"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "label",
+        "format"
+      ],
+      "title": "ChartPayloadKpiValue",
+      "type": "object"
+    },
+    "ChartPayloadSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "summary",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "CG_EMPTY",
+                "CG_SINGLE_VALUE",
+                "CG_FIELD_CARD",
+                "CG_NO_MEASURE",
+                "CG_ALL_IDS",
+                "CG_DEGENERATE_MEASURE",
+                "CG_HIGH_CARD",
+                "CG_EMIT_FAILED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "source_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Question"
+        },
+        "sql_query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sql Query"
+        },
+        "summary": {
+          "$ref": "#/$defs/ChartPayloadSummaryValue"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "tsType": "unknown",
+        "warning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Warning"
+        }
+      },
+      "required": [
+        "kind",
+        "summary"
+      ],
+      "title": "ChartPayloadSummary",
+      "type": "object"
+    },
+    "ChartPayloadSummaryValue": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/ChartSummaryField"
+          },
+          "title": "Fields",
+          "type": "array"
+        }
+      },
+      "required": [
+        "fields"
+      ],
+      "title": "ChartPayloadSummaryValue",
+      "type": "object"
+    },
+    "ChartPayloadTable": {
+      "additionalProperties": false,
+      "properties": {
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/ChartTableColumn"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "data": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Data",
+          "type": "array"
+        },
+        "kind": {
+          "const": "table",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "CG_EMPTY",
+                "CG_SINGLE_VALUE",
+                "CG_FIELD_CARD",
+                "CG_NO_MEASURE",
+                "CG_ALL_IDS",
+                "CG_DEGENERATE_MEASURE",
+                "CG_HIGH_CARD",
+                "CG_EMIT_FAILED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "source_question": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Question"
+        },
+        "sql_query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sql Query"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "tsType": "unknown",
+        "warning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Warning"
+        }
+      },
+      "required": [
+        "kind",
+        "columns",
+        "data"
+      ],
+      "title": "ChartPayloadTable",
+      "type": "object"
+    },
+    "ChartSummaryField": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "semantic_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Semantic Type"
+        },
+        "value": {
+          "default": null,
+          "title": "Value",
+          "tsType": "unknown"
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "role"
+      ],
+      "title": "ChartSummaryField",
+      "type": "object"
+    },
+    "ChartTableColumn": {
+      "additionalProperties": false,
+      "properties": {
+        "data_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data Type"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "type": "string"
+        },
+        "semantic_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Semantic Type"
+        }
+      },
+      "required": [
+        "name",
+        "label",
+        "role"
+      ],
+      "title": "ChartTableColumn",
+      "type": "object"
+    },
+    "CompactionPart": {
+      "additionalProperties": false,
+      "description": "Responses-API server-side compaction marker.",
+      "properties": {
+        "chat_session_id": {
+          "title": "Chat Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "tokens_before": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tokens Before"
+        },
+        "type": {
+          "const": "compaction",
+          "default": "compaction",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "chat_session_id",
+        "seq",
+        "created_at"
+      ],
+      "title": "CompactionPart",
+      "type": "object"
+    },
+    "Diagnostic": {
+      "additionalProperties": false,
+      "description": "Bouncer rule rejection \u2014 failure plus the recovery surface (available_*/did_you_mean).",
+      "properties": {
+        "available_columns_for": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": "Available Columns For",
+          "type": "object"
+        },
+        "available_joins": {
+          "items": {
+            "$ref": "#/$defs/AvailableJoin"
+          },
+          "title": "Available Joins",
+          "type": "array"
+        },
+        "available_tables": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Available Tables",
+          "type": "array"
+        },
+        "did_you_mean": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Did You Mean",
+          "type": "object"
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hint"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "missing_group_by_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Group By Keys",
+          "type": "array"
+        },
+        "offending_columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Offending Columns",
+          "type": "array"
+        },
+        "offending_tables": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Offending Tables",
+          "type": "array"
+        },
+        "required_scope_predicates": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Scope Predicates",
+          "type": "array"
+        },
+        "rule_id": {
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "rule_name": {
+          "title": "Rule Name",
+          "type": "string"
+        },
+        "rule_number": {
+          "title": "Rule Number",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rule_id",
+        "rule_number",
+        "rule_name",
+        "message"
+      ],
+      "title": "Diagnostic",
+      "type": "object"
+    },
+    "ErrorPart": {
+      "additionalProperties": false,
+      "properties": {
+        "chat_session_id": {
+          "title": "Chat Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "recoverable": {
+          "default": false,
+          "title": "Recoverable",
+          "type": "boolean"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "type": {
+          "const": "error",
+          "default": "error",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "chat_session_id",
+        "seq",
+        "created_at",
+        "source",
+        "message"
+      ],
+      "title": "ErrorPart",
+      "type": "object"
+    },
+    "EvidencePart": {
+      "additionalProperties": false,
+      "properties": {
+        "chat_session_id": {
+          "title": "Chat Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "refs": {
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Refs",
+          "type": "array"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "type": {
+          "const": "evidence",
+          "default": "evidence",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "chat_session_id",
+        "seq",
+        "created_at"
+      ],
+      "title": "EvidencePart",
+      "type": "object"
+    },
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "properties": {
+        "locator": {
+          "additionalProperties": true,
+          "title": "Locator",
+          "type": "object"
+        },
+        "ref_id": {
+          "format": "uuid",
+          "title": "Ref Id",
+          "type": "string"
+        },
+        "snippet": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Snippet"
+        },
+        "source": {
+          "enum": [
+            "sql_row",
+            "vector_chunk",
+            "kg_triple",
+            "action_receipt",
+            "doc_excerpt"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref_id",
+        "source",
+        "locator"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    },
+    "JoinKey": {
+      "additionalProperties": false,
+      "description": "One declared relationship column pair.",
+      "properties": {
+        "many_col": {
+          "title": "Many Col",
+          "type": "string"
+        },
+        "one_col": {
+          "title": "One Col",
+          "type": "string"
+        }
+      },
+      "required": [
+        "many_col",
+        "one_col"
+      ],
+      "title": "JoinKey",
+      "type": "object"
+    },
+    "ReasoningPart": {
+      "additionalProperties": false,
+      "properties": {
+        "chat_session_id": {
+          "title": "Chat Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "final": {
+          "default": false,
+          "title": "Final",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "reasoning",
+          "default": "reasoning",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "chat_session_id",
+        "seq",
+        "created_at"
+      ],
+      "title": "ReasoningPart",
+      "type": "object"
+    },
+    "RetryPart": {
+      "additionalProperties": false,
+      "description": "In-stream retry marker \u2014 supervisor emits before re-dispatching with prior_attempts populated.",
+      "properties": {
+        "attempt_number": {
+          "title": "Attempt Number",
+          "type": "integer"
+        },
+        "chat_session_id": {
+          "title": "Chat Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "failed_attempt": {
+          "$ref": "#/$defs/Attempt"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "specialist": {
+          "title": "Specialist",
+          "type": "string"
+        },
+        "type": {
+          "const": "retry",
+          "default": "retry",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "chat_session_id",
+        "seq",
+        "created_at",
+        "specialist",
+        "attempt_number",
+        "failed_attempt"
+      ],
+      "title": "RetryPart",
+      "type": "object"
+    },
+    "SpecialistBrief": {
+      "additionalProperties": false,
+      "description": "Typed input to a stateless specialist via ``Agent.as_tool`` \u2014 JSON-encoded by the supervisor.",
+      "properties": {
+        "prior_attempts": {
+          "items": {
+            "$ref": "#/$defs/Attempt"
+          },
+          "title": "Prior Attempts",
+          "type": "array"
+        },
+        "question": {
+          "title": "Question",
+          "type": "string"
+        },
+        "retry_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retry Hint"
+        },
+        "scope": {
+          "$ref": "#/$defs/SpecialistScope"
+        }
+      },
+      "required": [
+        "question",
+        "scope"
+      ],
+      "title": "SpecialistBrief",
+      "type": "object"
+    },
+    "SpecialistScope": {
+      "additionalProperties": false,
+      "description": "Per-dispatch scope \u2014 tenant + app + user resolved upstream.",
+      "properties": {
+        "app_id": {
+          "title": "App Id",
+          "type": "string"
+        },
+        "tenant_id": {
+          "title": "Tenant Id",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "app_id",
+        "user_id"
+      ],
+      "title": "SpecialistScope",
+      "type": "object"
+    },
+    "StepFinishPart": {
+      "additionalProperties": false,
+      "properties": {
+        "chat_session_id": {
+          "title": "Chat Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "last_response_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Response Id"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "tokens_in": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tokens In"
+        },
+        "tokens_out": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tokens Out"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "step_finish",
+          "default": "step_finish",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "chat_session_id",
+        "seq",
+        "created_at",
+        "turn_id",
+        "status"
+      ],
+      "title": "StepFinishPart",
+      "type": "object"
+    },
+    "StepStartPart": {
+      "additionalProperties": false,
+      "properties": {
+        "chat_session_id": {
+          "title": "Chat Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "turn_id": {
+          "title": "Turn Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "step_start",
+          "default": "step_start",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "chat_session_id",
+        "seq",
+        "created_at",
+        "turn_id"
+      ],
+      "title": "StepStartPart",
+      "type": "object"
+    },
+    "SubtaskPart": {
+      "additionalProperties": false,
+      "description": "Supervisor \u2192 specialist dispatch carrying the typed brief and a lifecycle state.\n\nstate transitions running\u2192completed|error in place (mirrors ToolPart). Optional\nso subtask rows persisted before the lifecycle existed still hydrate.",
+      "properties": {
+        "brief": {
+          "$ref": "#/$defs/SpecialistBrief"
+        },
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "chat_session_id": {
+          "title": "Chat Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "specialist": {
+          "title": "Specialist",
+          "type": "string"
+        },
+        "state": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "completed": "#/$defs/SubtaskStateCompleted",
+                  "error": "#/$defs/SubtaskStateError",
+                  "running": "#/$defs/SubtaskStateRunning"
+                },
+                "propertyName": "status"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/SubtaskStateRunning"
+                },
+                {
+                  "$ref": "#/$defs/SubtaskStateCompleted"
+                },
+                {
+                  "$ref": "#/$defs/SubtaskStateError"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "State"
+        },
+        "type": {
+          "const": "subtask",
+          "default": "subtask",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "chat_session_id",
+        "seq",
+        "created_at",
+        "specialist",
+        "call_id",
+        "brief"
+      ],
+      "title": "SubtaskPart",
+      "type": "object"
+    },
+    "SubtaskResult": {
+      "additionalProperties": false,
+      "description": "Lean projection of a specialist's return \u2014 uniform across specialists; sql/row_count populated for data.",
+      "properties": {
+        "row_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Count"
+        },
+        "sql": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sql"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "empty",
+            "needs_clarification",
+            "error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "SubtaskResult",
+      "type": "object"
+    },
+    "SubtaskStateCompleted": {
+      "additionalProperties": false,
+      "properties": {
+        "ended_at": {
+          "default": 0,
+          "title": "Ended At",
+          "type": "integer"
+        },
+        "result": {
+          "$ref": "#/$defs/SubtaskResult"
+        },
+        "started_at": {
+          "default": 0,
+          "title": "Started At",
+          "type": "integer"
+        },
+        "status": {
+          "const": "completed",
+          "default": "completed",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "title": "SubtaskStateCompleted",
+      "type": "object"
+    },
+    "SubtaskStateError": {
+      "additionalProperties": false,
+      "properties": {
+        "ended_at": {
+          "default": 0,
+          "title": "Ended At",
+          "type": "integer"
+        },
+        "error": {
+          "default": "",
+          "title": "Error",
+          "type": "string"
+        },
+        "started_at": {
+          "default": 0,
+          "title": "Started At",
+          "type": "integer"
+        },
+        "status": {
+          "const": "error",
+          "default": "error",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "SubtaskStateError",
+      "type": "object"
+    },
+    "SubtaskStateRunning": {
+      "additionalProperties": false,
+      "properties": {
+        "started_at": {
+          "default": 0,
+          "title": "Started At",
+          "type": "integer"
+        },
+        "status": {
+          "const": "running",
+          "default": "running",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "SubtaskStateRunning",
+      "type": "object"
+    },
+    "ToolPart": {
+      "additionalProperties": false,
+      "description": "One tool invocation \u2014 call_id is the Agents SDK tool_call_id; state transitions pending\u2192completed|error.",
+      "properties": {
+        "call_id": {
+          "title": "Call Id",
+          "type": "string"
+        },
+        "chat_session_id": {
+          "title": "Chat Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "state": {
+          "discriminator": {
+            "mapping": {
+              "completed": "#/$defs/ToolStateCompleted",
+              "error": "#/$defs/ToolStateError",
+              "pending": "#/$defs/ToolStatePending",
+              "running": "#/$defs/ToolStateRunning"
+            },
+            "propertyName": "status"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ToolStatePending"
+            },
+            {
+              "$ref": "#/$defs/ToolStateRunning"
+            },
+            {
+              "$ref": "#/$defs/ToolStateCompleted"
+            },
+            {
+              "$ref": "#/$defs/ToolStateError"
+            }
+          ],
+          "title": "State"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "type": {
+          "const": "tool",
+          "default": "tool",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "chat_session_id",
+        "seq",
+        "created_at",
+        "call_id",
+        "tool",
+        "state"
+      ],
+      "title": "ToolPart",
+      "type": "object"
+    },
+    "ToolStateCompleted": {
+      "additionalProperties": false,
+      "properties": {
+        "ended_at": {
+          "title": "Ended At",
+          "type": "integer"
+        },
+        "input": {
+          "additionalProperties": true,
+          "title": "Input",
+          "type": "object"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "output": {
+          "default": "",
+          "title": "Output",
+          "type": "string"
+        },
+        "started_at": {
+          "title": "Started At",
+          "type": "integer"
+        },
+        "status": {
+          "const": "completed",
+          "default": "completed",
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        },
+        "tsType": "unknown"
+      },
+      "required": [
+        "started_at",
+        "ended_at"
+      ],
+      "title": "ToolStateCompleted",
+      "type": "object"
+    },
+    "ToolStateError": {
+      "additionalProperties": false,
+      "properties": {
+        "ended_at": {
+          "title": "Ended At",
+          "type": "integer"
+        },
+        "error": {
+          "default": "",
+          "title": "Error",
+          "type": "string"
+        },
+        "input": {
+          "additionalProperties": true,
+          "title": "Input",
+          "type": "object"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "started_at": {
+          "title": "Started At",
+          "type": "integer"
+        },
+        "status": {
+          "const": "error",
+          "default": "error",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "started_at",
+        "ended_at"
+      ],
+      "title": "ToolStateError",
+      "type": "object"
+    },
+    "ToolStatePending": {
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "additionalProperties": true,
+          "title": "Input",
+          "type": "object"
+        },
+        "raw": {
+          "default": "",
+          "title": "Raw",
+          "type": "string"
+        },
+        "status": {
+          "const": "pending",
+          "default": "pending",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "title": "ToolStatePending",
+      "type": "object"
+    },
+    "ToolStateRunning": {
+      "additionalProperties": false,
+      "properties": {
+        "input": {
+          "additionalProperties": true,
+          "title": "Input",
+          "type": "object"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "started_at": {
+          "title": "Started At",
+          "type": "integer"
+        },
+        "status": {
+          "const": "running",
+          "default": "running",
+          "title": "Status",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "tsType": "unknown"
+      },
+      "required": [
+        "started_at"
+      ],
+      "title": "ToolStateRunning",
+      "type": "object"
+    },
+    "UserMessagePart": {
+      "additionalProperties": false,
+      "properties": {
+        "chat_session_id": {
+          "title": "Chat Session Id",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "integer"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "user_message",
+          "default": "user_message",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "chat_session_id",
+        "seq",
+        "created_at",
+        "text"
+      ],
+      "title": "UserMessagePart",
+      "type": "object"
+    },
+    "Verdict": {
+      "additionalProperties": false,
+      "description": "Bouncer pre/post-execution outcome \u2014 ok carries safe_sql, invalid carries diagnostic.",
+      "properties": {
+        "declared_grain": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Declared Grain",
+          "type": "array"
+        },
+        "diagnostic": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Diagnostic"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "displayed_row_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Displayed Row Count"
+        },
+        "expected_row_bound": {
+          "anyOf": [
+            {
+              "enum": [
+                "single",
+                "small",
+                "medium",
+                "large",
+                "unbounded"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Row Bound"
+        },
+        "limit_applied": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Limit Applied"
+        },
+        "more_rows_exist": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "More Rows Exist"
+        },
+        "row_cap": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Cap"
+        },
+        "safe_sql": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safe Sql"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "invalid"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Verdict",
+      "type": "object"
+    }
+  },
+  "$id": "https://ai-evals-platform/schemas/sherlock_v3/sherlock_contract.json",
+  "discriminator": {
+    "mapping": {
+      "assistant_text": "#/$defs/AssistantTextPart",
+      "chart": "#/$defs/ChartPart",
+      "compaction": "#/$defs/CompactionPart",
+      "error": "#/$defs/ErrorPart",
+      "evidence": "#/$defs/EvidencePart",
+      "reasoning": "#/$defs/ReasoningPart",
+      "retry": "#/$defs/RetryPart",
+      "step_finish": "#/$defs/StepFinishPart",
+      "step_start": "#/$defs/StepStartPart",
+      "subtask": "#/$defs/SubtaskPart",
+      "tool": "#/$defs/ToolPart",
+      "user_message": "#/$defs/UserMessagePart"
+    },
+    "propertyName": "type"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/UserMessagePart"
+    },
+    {
+      "$ref": "#/$defs/AssistantTextPart"
+    },
+    {
+      "$ref": "#/$defs/ReasoningPart"
+    },
+    {
+      "$ref": "#/$defs/SubtaskPart"
+    },
+    {
+      "$ref": "#/$defs/RetryPart"
+    },
+    {
+      "$ref": "#/$defs/ToolPart"
+    },
+    {
+      "$ref": "#/$defs/ChartPart"
+    },
+    {
+      "$ref": "#/$defs/EvidencePart"
+    },
+    {
+      "$ref": "#/$defs/ErrorPart"
+    },
+    {
+      "$ref": "#/$defs/CompactionPart"
+    },
+    {
+      "$ref": "#/$defs/StepStartPart"
+    },
+    {
+      "$ref": "#/$defs/StepFinishPart"
+    }
+  ],
+  "title": "SherlockPart"
+}

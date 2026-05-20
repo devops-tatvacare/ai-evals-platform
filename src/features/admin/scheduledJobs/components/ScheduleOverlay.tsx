@@ -17,6 +17,9 @@ import type {
   ScheduleOverride,
   SkipCriterion,
 } from '../types';
+import { NotifyOnFailureSection } from './NotifyOnFailureSection';
+import { useAuthStore } from '@/stores/authStore';
+import { adminApi } from '@/services/api/adminApi';
 
 interface Props {
   schedule: Schedule | null;
@@ -67,6 +70,33 @@ export function ScheduleOverlay({ schedule, onClose }: Props) {
     schedule?.override ?? { skipCriteria: [], retryCount: 0, retryIntervalMinutes: 15, onExhaust: 'wait_next_tick' },
   );
   const [enabled, setEnabled] = useState(schedule?.enabled ?? true);
+  const [notifyOwnerOnFailure, setNotifyOwnerOnFailure] = useState(
+    schedule?.notifyOwnerOnFailure ?? false,
+  );
+  const [notifyEmailsOnFailure, setNotifyEmailsOnFailure] = useState<string[]>(
+    schedule?.notifyEmailsOnFailure ?? [],
+  );
+  const sessionEmail = useAuthStore((s) => s.user?.email ?? null);
+  // Existing schedules carry a snapshot of the creator's email; new
+  // schedules read it from the signed-in session so the owner-checkbox
+  // has a recipient on first save.
+  const ownerEmail = schedule?.createdByUserEmailSnapshot ?? sessionEmail;
+  const [allowedDomains, setAllowedDomains] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void adminApi
+      .getTenantConfig()
+      .then((cfg) => {
+        if (!cancelled) setAllowedDomains(cfg.allowedDomains ?? []);
+      })
+      .catch(() => {
+        // Domain hint is informational; failing silent is acceptable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Snapshot the initial form shape so a dirty-state gate can compare
   // against the current field values. A single JSON-serialized baseline
@@ -87,6 +117,8 @@ export function ScheduleOverlay({ schedule, onClose }: Props) {
         onExhaust: 'wait_next_tick',
       },
       enabled: schedule?.enabled ?? true,
+      notifyOwnerOnFailure: schedule?.notifyOwnerOnFailure ?? false,
+      notifyEmailsOnFailure: schedule?.notifyEmailsOnFailure ?? [],
     }),
   );
   const currentSnapshot = JSON.stringify({
@@ -99,6 +131,8 @@ export function ScheduleOverlay({ schedule, onClose }: Props) {
     paramsText,
     override,
     enabled,
+    notifyOwnerOnFailure,
+    notifyEmailsOnFailure,
   });
   const isDirty = currentSnapshot !== baselineRef.current;
 
@@ -198,6 +232,8 @@ export function ScheduleOverlay({ schedule, onClose }: Props) {
           params,
           override,
           enabled,
+          notifyOwnerOnFailure,
+          notifyEmailsOnFailure,
         });
         notificationService.success('Schedule updated.');
       } else {
@@ -211,6 +247,8 @@ export function ScheduleOverlay({ schedule, onClose }: Props) {
           params,
           override,
           enabled,
+          notifyOwnerOnFailure,
+          notifyEmailsOnFailure,
         });
         notificationService.success('Schedule created.');
       }
@@ -420,6 +458,18 @@ export function ScheduleOverlay({ schedule, onClose }: Props) {
             />
             Enabled
           </label>
+
+          <NotifyOnFailureSection
+            notifyOwnerOnFailure={notifyOwnerOnFailure}
+            notifyEmailsOnFailure={notifyEmailsOnFailure}
+            ownerEmail={ownerEmail}
+            allowedDomains={allowedDomains}
+            onChange={(next) => {
+              setNotifyOwnerOnFailure(next.notifyOwnerOnFailure);
+              setNotifyEmailsOnFailure(next.notifyEmailsOnFailure);
+            }}
+          />
+
 
           {error ? (
             <div className="rounded-md border border-[var(--color-danger)] bg-[var(--color-danger)]/10 px-3 py-2 text-xs text-[var(--color-danger)]">

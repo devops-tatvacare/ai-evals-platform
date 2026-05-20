@@ -1,4 +1,6 @@
-"""Compile source.cohort_query config → INSERT-from-SELECT SQL + bind params.
+"""Compile cohort-query config → INSERT-from-SELECT SQL + bind params.
+
+Consumed by ``source.saved_cohort`` and ``source.dataset`` node handlers.
 
 Materializes the entry cohort directly into workflow_run_recipient_states in
 one round-trip. Set algebra at the boundary; per-recipient walking downstream.

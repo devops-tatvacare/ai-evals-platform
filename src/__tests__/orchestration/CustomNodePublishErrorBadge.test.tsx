@@ -38,7 +38,7 @@ function renderNode(opts: {
       <CenterSpyHarness />
       <CustomNode
         {...({
-          id: 'wati-1',
+          id: 'wh-1',
           selected: false,
           type: 'custom',
           data: opts.data,
@@ -52,10 +52,10 @@ describe('CustomNode — publish-error badge', () => {
   beforeEach(() => {
     useWorkflowBuilderStore.getState().reset();
     useWorkflowBuilderStore.getState().addNode({
-      id: 'wati-1',
-      type: 'crm.send_wati',
+      id: 'wh-1',
+      type: 'core.webhook_out',
       position: { x: 100, y: 200 },
-      data: { label: 'WATI', nodeType: 'crm.send_wati' },
+      data: { label: 'Webhook', nodeType: 'core.webhook_out' },
       config: {},
     });
   });
@@ -63,8 +63,8 @@ describe('CustomNode — publish-error badge', () => {
   it('renders no badge when publishErrors is missing/empty', () => {
     renderNode({
       data: {
-        label: 'WATI',
-        nodeType: 'crm.send_wati',
+        label: 'Webhook',
+        nodeType: 'core.webhook_out',
         category: 'action',
         outputEdges: ['default'],
       },
@@ -77,12 +77,12 @@ describe('CustomNode — publish-error badge', () => {
   it('renders a badge when publishErrors has entries', () => {
     renderNode({
       data: {
-        label: 'WATI',
-        nodeType: 'crm.send_wati',
+        label: 'Webhook',
+        nodeType: 'core.webhook_out',
         category: 'action',
         outputEdges: ['default'],
         publishErrors: [
-          { field: 'config.template_name', message: 'Pick the WATI template.' },
+          { field: 'config.url', message: 'Set the webhook URL.' },
         ],
       },
     });
@@ -95,12 +95,12 @@ describe('CustomNode — publish-error badge', () => {
     const onSetCenter = vi.fn();
     renderNode({
       data: {
-        label: 'WATI',
-        nodeType: 'crm.send_wati',
+        label: 'Webhook',
+        nodeType: 'core.webhook_out',
         category: 'action',
         outputEdges: ['default'],
         publishErrors: [
-          { field: 'config.template_name', message: 'Pick the WATI template.' },
+          { field: 'config.url', message: 'Set the webhook URL.' },
         ],
       },
       onSetCenter,
@@ -108,7 +108,7 @@ describe('CustomNode — publish-error badge', () => {
 
     fireEvent.click(screen.getByTestId('custom-node-publish-error-badge'));
 
-    expect(useWorkflowBuilderStore.getState().selectedNodeId).toBe('wati-1');
+    expect(useWorkflowBuilderStore.getState().selectedNodeId).toBe('wh-1');
     // Center request is best-effort — when React Flow's internal node
     // bookkeeping doesn't have the node registered (jsdom test mode),
     // setCenter may not fire. We don't assert it strictly.
@@ -122,12 +122,12 @@ describe('CustomNode — publish-error badge', () => {
   it('badge is suppressed when overlay is present (run-canvas read-only mode)', () => {
     renderNode({
       data: {
-        label: 'WATI',
-        nodeType: 'crm.send_wati',
+        label: 'Webhook',
+        nodeType: 'core.webhook_out',
         category: 'action',
         outputEdges: ['default'],
         publishErrors: [
-          { field: 'config.template_name', message: 'Pick the WATI template.' },
+          { field: 'config.url', message: 'Set the webhook URL.' },
         ],
         overlay: { status: 'completed' },
       },

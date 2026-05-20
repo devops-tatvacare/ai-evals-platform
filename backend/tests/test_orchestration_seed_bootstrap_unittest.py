@@ -1,21 +1,12 @@
-"""Phase 10 commit 1: env→connection bootstrap and seed-JSON injection.
-
-Asserts:
-- ``_bootstrap_default_connections_from_env`` inserts one row per provider
-  whose env vars are present, idempotently.
-- The MQL Concierge seed loads with ``connection_id`` and ``variable_mappings``
-  populated on each crm.* node, drawn from the matching action template.
-- When env vars are absent, no bootstrapped rows are inserted and the
-  seeded workflow loads without ``connection_id`` (system seed still works).
-"""
+"""Env→connection bootstrap + seed loader behaviour after the vendor-abstraction wipe."""
 from __future__ import annotations
 
 import pytest
 from cryptography.fernet import Fernet
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.constants import SYSTEM_TENANT_ID
-from app.models.orchestration import Workflow, WorkflowVersion
+from app.models.orchestration import Workflow
 from app.models.provider_connection import ProviderConnection
 
 
@@ -167,12 +158,9 @@ async def test_bootstrap_skips_provider_without_env(db_session, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_seed_workflow_injects_connection_ids_and_mappings(
-    db_session, monkeypatch,
-):
-    """Full seed run with bolna+wati env set should produce an MQL Concierge
-    seed where every crm.send_wati and crm.place_bolna_call node has
-    ``connection_id`` and ``variable_mappings`` populated."""
+async def test_seed_does_not_install_any_workflow(db_session, monkeypatch):
+    """Vendor-abstraction P1 wiped the seeded MQL Concierge / DM2 workflows;
+    the seeder no longer installs any workflow fixture."""
     _set_bolna_env(monkeypatch)
     _set_wati_env(monkeypatch)
     monkeypatch.setattr("app.config.settings.ORCHESTRATION_DEFAULT_APP_ID", "inside-sales")
@@ -181,63 +169,9 @@ async def test_seed_workflow_injects_connection_ids_and_mappings(
 
     await seed_orchestration_defaults(db_session)
 
-    wf = await db_session.scalar(
-        select(Workflow).where(
+    count = await db_session.scalar(
+        select(func.count()).select_from(Workflow).where(
             Workflow.tenant_id == SYSTEM_TENANT_ID,
-            Workflow.slug == "mql-concierge-default",
         )
     )
-    assert wf is not None
-    v = await db_session.scalar(
-        select(WorkflowVersion).where(
-            WorkflowVersion.id == wf.current_published_version_id
-        )
-    )
-    assert v is not None
-
-    wati_nodes = [n for n in v.definition["nodes"] if n["type"] == "crm.send_wati"]
-    bolna_nodes = [n for n in v.definition["nodes"] if n["type"] == "crm.place_bolna_call"]
-    assert wati_nodes and bolna_nodes
-    for node in wati_nodes:
-        assert "connection_id" in node["config"]
-        # Workflows now declare variable_mappings directly per node — no
-        # template-side materialization. Each row carries the canonical
-        # source_kind / payload_field / agent_variable shape.
-        mappings = node["config"].get("variable_mappings")
-        assert isinstance(mappings, list) and mappings
-        for entry in mappings:
-            assert "agent_variable" in entry
-            assert entry["source_kind"] in ("payload", "static")
-    for node in bolna_nodes:
-        assert "connection_id" in node["config"]
-        mappings = node["config"].get("variable_mappings")
-        assert isinstance(mappings, list) and mappings
-
-
-@pytest.mark.asyncio
-async def test_seed_workflow_no_env_keeps_loading(db_session, monkeypatch):
-    """Without env vars present, seed still succeeds — connection_id just
-    isn't injected (commit-2 handlers fall back to env-backed services
-    until bootstrapped)."""
-    _clear_provider_env(monkeypatch)
-    monkeypatch.setattr("app.config.settings.ORCHESTRATION_DEFAULT_APP_ID", "inside-sales")
-
-    from app.services.orchestration_seed import seed_orchestration_defaults
-
-    await seed_orchestration_defaults(db_session)
-
-    wf = await db_session.scalar(
-        select(Workflow).where(
-            Workflow.tenant_id == SYSTEM_TENANT_ID,
-            Workflow.slug == "mql-concierge-default",
-        )
-    )
-    assert wf is not None
-    v = await db_session.scalar(
-        select(WorkflowVersion).where(
-            WorkflowVersion.id == wf.current_published_version_id
-        )
-    )
-    bolna_nodes = [n for n in v.definition["nodes"] if n["type"] == "crm.place_bolna_call"]
-    for node in bolna_nodes:
-        assert "connection_id" not in node["config"]
+    assert count == 0

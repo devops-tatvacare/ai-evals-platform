@@ -49,15 +49,33 @@ class AnalyticsSummaryConfig(CamelModel):
 
 class AnalyticsCapabilities(CamelModel):
     single_run_report: bool = False
-    cross_run_analytics: bool = False
-    cross_run_ai_summary: bool = False
     pdf_export: bool = False
+
+
+class PrintThemeTokens(CamelModel):
+    """Per-composition theme palette. Mirror of
+    ``app.services.reports.contracts.print_document.PrintThemeTokenSet``; we
+    duplicate the shape rather than import upward so this schema module stays
+    free of ``services/`` dependencies. Phase 3 (G2) introduces this field so
+    palettes stop being hardcoded in ``document_composer._THEMES_BY_VARIANT``.
+    When set, the composer uses these tokens as the base palette for the
+    composition; otherwise the variant-keyed dict in document_composer is the
+    fallback (deletion is a follow-up after every app's seed populates this).
+    """
+
+    accent: str
+    accent_muted: str
+    border: str
+    text_primary: str
+    text_secondary: str
+    background: str
 
 
 class AnalyticsCompositionConfig(CamelModel):
     sections: list[AnalyticsSectionConfig] = Field(default_factory=list)
     export: AnalyticsExportConfig = Field(default_factory=AnalyticsExportConfig)
     ai_summary: AnalyticsSummaryConfig = Field(default_factory=AnalyticsSummaryConfig)
+    theme: PrintThemeTokens | None = None
 
 
 class AnalyticsAssetKeys(CamelModel):

@@ -103,8 +103,6 @@ async def run_batch_evaluation(
     app_id: str = "kaira-bot",
     llm_provider: str = "gemini",
     llm_model: Optional[str] = None,
-    api_key: str = "",
-    service_account_path: str = "",
     temperature: float = 0.1,
     intent_system_prompt: str = "",
     evaluate_intent: bool = True,
@@ -124,8 +122,6 @@ async def run_batch_evaluation(
     custom_only: bool = False,
     truncate_responses: bool = False,
     selected_rule_ids: Optional[list[str]] = None,
-    azure_endpoint: str = "",
-    api_version: str = "",
     eval_run_id: Optional[str] = None,
 ) -> dict:
     """Run batch evaluation on threads from a data file."""
@@ -182,23 +178,29 @@ async def run_batch_evaluation(
         run_id=str(run_id),
     )
 
-    # Resolve API key from settings if not provided
-    auth_method = "api_key"  # default when caller provides api_key directly
-    if not api_key:
-        from app.services.evaluators.settings_helper import get_llm_settings_from_db
+    from app.services.llm_credentials import resolve_llm_call
 
-        db_settings = await get_llm_settings_from_db(
-            tenant_id=tenant_id, user_id=user_id,
-            auth_intent="managed_job", provider_override=llm_provider or None,
+    # batch_runner is the generic chat-quality runner. Caller-supplied
+    # llm_provider / llm_model become resolver overrides; the call site is
+    # always chat_text for this runner.
+    async with async_session() as db:
+        resolved = await resolve_llm_call(
+            db, tenant_id, "chat_text",
+            provider_override=llm_provider or None,
+            model_override=llm_model or None,
         )
-        api_key = db_settings["api_key"]
-        auth_method = db_settings.get("auth_method", "api_key")
-        if not service_account_path:
-            service_account_path = db_settings.get("service_account_path", "")
-        if not llm_provider:
-            llm_provider = db_settings["provider"]
-        if not llm_model:
-            llm_model = db_settings["selected_model"]
+    api_key = resolved.credentials.secret.get("api_key", "")
+    service_account_path = resolved.credentials.service_account_path or ""
+    auth_method = "service_account" if resolved.credentials.service_account_path else "api_key"
+    azure_endpoint = ""
+    api_version = ""
+    if resolved.provider == "azure_openai":
+        azure_endpoint = resolved.credentials.extra_config.get("base_url") or ""
+        api_version = resolved.api_version or resolved.credentials.extra_config.get("api_version", "2025-03-01-preview")
+    # Caller previously passed llm_model verbatim; runner now uses the resolved
+    # model string (which may equal the override when provided).
+    llm_model = resolved.model
+    llm_provider = resolved.provider
 
     # Load data
     loader = DataLoader(

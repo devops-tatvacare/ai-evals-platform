@@ -17,7 +17,7 @@ describe('RecipientsTab', () => {
     mockedListRunRecipients.mockResolvedValue([
       {
         recipientId: 'lead-1',
-        currentNodeId: 'crm.send_wati',
+        currentNodeId: 'core.webhook_out',
         status: 'waiting',
         wakeupAt: null,
         payload: {
@@ -61,7 +61,7 @@ describe('RecipientsTab', () => {
           status: 'completed',
           wakeupAt: null,
           payload: {
-            last_outcome: 'bolna_queued',
+            last_outcome: 'voice_queued',
             last_event_at: '2026-05-04T12:00:00Z',
           },
           enrolledAt: '2026-05-04T10:00:00Z',

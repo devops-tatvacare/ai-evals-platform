@@ -1,13 +1,14 @@
-import { type InputHTMLAttributes, forwardRef } from 'react';
+import { type InputHTMLAttributes, type ReactNode, forwardRef } from 'react';
 import { cn } from '@/utils';
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   icon?: React.ReactNode;
+  rightSlot?: ReactNode;
   error?: string;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, icon, error, type, ...props }, ref) => {
+  ({ className, icon, rightSlot, error, type, ...props }, ref) => {
     return (
       <div className="relative">
         {icon && (
@@ -23,11 +24,17 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             'border-[var(--border-default)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--color-brand-accent)]/50',
             'disabled:cursor-not-allowed disabled:opacity-50',
             icon && 'pl-10',
+            rightSlot && 'pr-12',
             error && 'border-[var(--color-error)] focus:border-[var(--color-error)] focus:ring-[var(--color-error)]/50',
             className
           )}
           {...props}
         />
+        {rightSlot && (
+          <div className="absolute right-2 top-1/2 -translate-y-1/2">
+            {rightSlot}
+          </div>
+        )}
         {error && (
           <p className="mt-1 text-[11px] text-[var(--color-error)]">{error}</p>
         )}

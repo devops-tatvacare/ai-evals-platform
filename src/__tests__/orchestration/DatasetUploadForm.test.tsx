@@ -1,9 +1,30 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/services/api/orchestrationDatasets', () => ({
   orchestrationDatasetsApi: {
     uploadVersion: vi.fn(),
+    formats: vi.fn().mockResolvedValue([
+      {
+        sourceType: 'csv',
+        extensions: ['.csv'],
+        mimeTypes: ['text/csv'],
+        label: 'CSV (.csv)',
+        maxUploadBytes: 50 * 1024 * 1024,
+        supportsClientPreview: true,
+      },
+      {
+        sourceType: 'xlsx',
+        extensions: ['.xlsx'],
+        mimeTypes: [
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ],
+        label: 'Excel (.xlsx)',
+        maxUploadBytes: 50 * 1024 * 1024,
+        supportsClientPreview: true,
+      },
+    ]),
   },
 }));
 
@@ -20,14 +41,38 @@ import { ApiError } from '@/services/api/client';
 import { orchestrationDatasetsApi } from '@/services/api/orchestrationDatasets';
 import { DatasetUploadForm } from '@/features/orchestration/components/datasets/DatasetUploadForm';
 
+function renderForm(
+  overrides: Partial<React.ComponentProps<typeof DatasetUploadForm>> = {},
+) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={qc}>
+      <DatasetUploadForm
+        datasetId="ds-1"
+        onClose={() => {}}
+        onUploaded={() => {}}
+        {...overrides}
+      />
+    </QueryClientProvider>,
+  );
+}
+
 function csvFile(content: string, name = 'cohort.csv'): File {
   return new File([content], name, { type: 'text/csv' });
 }
 
+async function waitForFormats() {
+  await waitFor(() =>
+    expect(screen.getByText(/Supported:/)).toBeInTheDocument(),
+  );
+}
+
 async function pickFile(file: File) {
-  const input = screen.getByLabelText('CSV file') as HTMLInputElement;
+  await waitForFormats();
+  const input = screen.getByLabelText('Data file') as HTMLInputElement;
   fireEvent.change(input, { target: { files: [file] } });
-  // Wait for FileReader.onload to flush.
   await waitFor(() =>
     expect(screen.getByText(/Detected columns/)).toBeInTheDocument(),
   );
@@ -38,26 +83,16 @@ describe('DatasetUploadForm', () => {
     vi.clearAllMocks();
   });
 
-  it('renders the file picker initially', () => {
-    render(
-      <DatasetUploadForm
-        datasetId="ds-1"
-        onClose={() => {}}
-        onUploaded={() => {}}
-      />,
-    );
-    expect(screen.getByLabelText('CSV file')).toBeInTheDocument();
+  it('renders the file picker initially', async () => {
+    renderForm();
+    await waitForFormats();
+    expect(screen.getByLabelText('Data file')).toBeInTheDocument();
     expect(screen.getByText('Upload version')).toBeInTheDocument();
+    expect(screen.getByText(/CSV.*Excel/)).toBeInTheDocument();
   });
 
   it('extracts headers from a selected CSV', async () => {
-    render(
-      <DatasetUploadForm
-        datasetId="ds-1"
-        onClose={() => {}}
-        onUploaded={() => {}}
-      />,
-    );
+    renderForm();
     await pickFile(csvFile('phone,name\n+91111,Alice\n+91222,Bob\n'));
 
     expect(screen.getByText('phone')).toBeInTheDocument();
@@ -66,29 +101,16 @@ describe('DatasetUploadForm', () => {
   });
 
   it('disables submit until a column is chosen for column-strategy', async () => {
-    render(
-      <DatasetUploadForm
-        datasetId="ds-1"
-        onClose={() => {}}
-        onUploaded={() => {}}
-      />,
-    );
+    renderForm();
     const submit = screen.getByRole('button', { name: /Upload version/ });
     expect(submit).toBeDisabled();
 
     await pickFile(csvFile('phone,name\n+91111,Alice\n'));
-    // Still disabled because column hasn't been chosen yet.
     expect(submit).toBeDisabled();
   });
 
   it('switching to UUID strategy hides the column dropdown and enables submit', async () => {
-    render(
-      <DatasetUploadForm
-        datasetId="ds-1"
-        onClose={() => {}}
-        onUploaded={() => {}}
-      />,
-    );
+    renderForm();
     await pickFile(csvFile('phone,name\n+91111,Alice\n'));
 
     fireEvent.click(screen.getByLabelText(/Auto-generate IDs/));
@@ -114,13 +136,7 @@ describe('DatasetUploadForm', () => {
       importedAt: '2026-05-03T00:00:00Z',
     });
     const onUploaded = vi.fn();
-    render(
-      <DatasetUploadForm
-        datasetId="ds-1"
-        onClose={() => {}}
-        onUploaded={onUploaded}
-      />,
-    );
+    renderForm({ onUploaded });
     const file = csvFile('phone,name\n+91111,Alice\n');
     await pickFile(file);
 
@@ -142,13 +158,7 @@ describe('DatasetUploadForm', () => {
     (orchestrationDatasetsApi.uploadVersion as ReturnType<typeof vi.fn>).mockRejectedValue(
       new ApiError(400, 'Invalid id_column "foo": not present in header row'),
     );
-    render(
-      <DatasetUploadForm
-        datasetId="ds-1"
-        onClose={() => {}}
-        onUploaded={() => {}}
-      />,
-    );
+    renderForm();
     await pickFile(csvFile('phone,name\n+91111,Alice\n'));
 
     fireEvent.click(screen.getByLabelText(/Auto-generate IDs/));
@@ -157,8 +167,18 @@ describe('DatasetUploadForm', () => {
     expect(
       await screen.findByText(/Invalid id_column "foo"/),
     ).toBeInTheDocument();
-    // Form state preserved — the file is still attached and headers visible.
     expect(screen.getByText('Detected columns (2)')).toBeInTheDocument();
-    expect(screen.getByText(/cohort\.csv/)).toBeInTheDocument();
+    expect(screen.getByText(/cohort\.cs/)).toBeInTheDocument();
+  });
+
+  it('rejects an unsupported file extension', async () => {
+    renderForm();
+    await waitForFormats();
+    const input = screen.getByLabelText('Data file') as HTMLInputElement;
+    const pdf = new File(['x'], 'leads.pdf', { type: 'application/pdf' });
+    fireEvent.change(input, { target: { files: [pdf] } });
+    expect(
+      await screen.findByText(/Unsupported file type/),
+    ).toBeInTheDocument();
   });
 });

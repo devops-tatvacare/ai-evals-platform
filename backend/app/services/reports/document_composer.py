@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.schemas.app_analytics_config import AnalyticsExportConfig
+from app.schemas.app_analytics_config import AnalyticsExportConfig, PrintThemeTokens
 from app.services.reports.contracts.print_document import (
     CoverBlock,
     EntityTableBlock,
@@ -90,6 +90,11 @@ _THEMES_BY_VARIANT: dict[str, PrintThemeTokenSet] = {
 
 def _theme_for_variant(document_variant: str) -> PrintThemeTokenSet:
     return _THEMES_BY_VARIANT.get(document_variant, _DEFAULT_THEME)
+
+
+def known_document_variants() -> frozenset[str]:
+    # Phase 1 reporting validator reads this; do not inline _THEMES_BY_VARIANT.keys() at the call site.
+    return frozenset(_THEMES_BY_VARIANT.keys())
 
 
 def _cover_metadata(metadata: dict[str, str | None]) -> dict[str, str]:
@@ -417,7 +422,18 @@ def compose_document(
     sections: list[PlatformReportSection],
     export_config: AnalyticsExportConfig,
     theme_tokens: dict[str, str] | None = None,
+    composition_theme: PrintThemeTokens | None = None,
 ) -> PlatformReportDocument:
+    """Theme resolution order (Phase 3 G2):
+      1. ``composition_theme`` — the new ``app.config.analytics.<scope>.theme``
+         field, when populated.
+      2. ``_theme_for_variant(export_config.document_variant)`` — the legacy
+         hardcoded palette dict, retained as fallback until every app's seed
+         migrates to the new field.
+      3. ``theme_tokens`` — per-report partial overrides from
+         ``presentation_config.theme_tokens`` are applied on top of whichever
+         base resolved.
+    """
     section_by_id = {section.id: section for section in sections}
     selected_ids = export_config.section_ids or list(section_by_id.keys())
 
@@ -438,11 +454,14 @@ def compose_document(
         if index < len(selected_ids) - 1 and section.type in {'heatmap', 'entity_slices'}:
             blocks.append(PageBreakBlock(id=f'{section.id}-page-break'))
 
+    if composition_theme is not None:
+        base_theme = PrintThemeTokenSet(**composition_theme.model_dump())
+    else:
+        base_theme = _theme_for_variant(export_config.document_variant)
+
     return PlatformReportDocument(
         title=title,
         subtitle=subtitle,
-        theme=_theme_for_variant(export_config.document_variant).model_copy(
-            update=theme_tokens or {},
-        ),
+        theme=base_theme.model_copy(update=theme_tokens or {}),
         blocks=blocks,
     )

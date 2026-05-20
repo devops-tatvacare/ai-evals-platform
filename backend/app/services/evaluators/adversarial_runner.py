@@ -274,7 +274,6 @@ async def run_adversarial_evaluation(
     max_turns: int = settings.ADVERSARIAL_MAX_TURNS,
     llm_provider: str = "gemini",
     llm_model: Optional[str] = None,
-    api_key: str = "",
     temperature: float = 0.1,
     progress_callback: Optional[ProgressCallback] = None,
     name: Optional[str] = None,
@@ -298,8 +297,6 @@ async def run_adversarial_evaluation(
     retry_eval_ids: Optional[List[int]] = None,
     source_run_id: Optional[str] = None,
     kaira_timeout: float = 120,
-    azure_endpoint: str = "",
-    api_version: str = "",
     eval_run_id: Optional[str] = None,
 ) -> dict:
     """Run adversarial stress test against live Kaira API."""
@@ -448,28 +445,24 @@ async def run_adversarial_evaluation(
         job_id, 0, requested_total or test_count, "Initializing...", run_id=str(run_id),
     )
 
-    # Resolve API key from settings if not provided
-    sa_path = ""
-    db_settings = None
-    auth_method = "api_key"  # default when caller provides api_key directly
-    if not api_key:
-        from app.services.evaluators.settings_helper import get_llm_settings_from_db
-        db_settings = await get_llm_settings_from_db(
-            tenant_id=tenant_id, user_id=user_id,
-            auth_intent="managed_job", provider_override=llm_provider or None,
-        )
-        api_key = db_settings["api_key"]
-        sa_path = db_settings.get("service_account_path", "")
-        auth_method = db_settings.get("auth_method", "api_key")
-        if not llm_provider:
-            llm_provider = db_settings["provider"]
-        if not llm_model:
-            llm_model = db_settings["selected_model"]
+    from app.services.llm_credentials import resolve_llm_call
 
-    # Create LLM provider with logging wrapper
-    if not azure_endpoint and llm_provider == "azure_openai":
-        azure_endpoint = db_settings.get("azure_endpoint", "") if db_settings else ""
-        api_version = db_settings.get("api_version", "") if db_settings else ""
+    async with async_session() as db:
+        resolved = await resolve_llm_call(
+            db, tenant_id, "chat_text",
+            provider_override=llm_provider or None,
+            model_override=llm_model or None,
+        )
+    api_key = resolved.credentials.secret.get("api_key", "")
+    sa_path = resolved.credentials.service_account_path or ""
+    auth_method = "service_account" if resolved.credentials.service_account_path else "api_key"
+    azure_endpoint = ""
+    api_version = ""
+    if resolved.provider == "azure_openai":
+        azure_endpoint = resolved.credentials.extra_config.get("base_url") or ""
+        api_version = resolved.api_version or resolved.credentials.extra_config.get("api_version", "2025-03-01-preview")
+    llm_provider = resolved.provider
+    llm_model = resolved.model
     inner_llm = create_llm_provider(
         provider=llm_provider, api_key=api_key,
         model_name=llm_model or "", temperature=temperature,

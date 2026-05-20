@@ -18,6 +18,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     Index,
@@ -79,6 +80,8 @@ class Workflow(ShareableMixin, Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    # Seconds a recipient may stay 'waiting' after run completion before the sweep aborts it; NULL → sweep default.
+    max_wait_after_completion_seconds: Mapped[Optional[int]] = mapped_column(Integer)
     user_id = synonym("created_by")
 
 
@@ -295,6 +298,45 @@ class WorkflowRun(Base):
     error: Mapped[Optional[str]] = mapped_column(Text)
     params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    cancel_requested_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    cancel_requested_by: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True))
+    cancel_finalized_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class WorkflowRunCancelAudit(Base):
+    """One row per CancelDispatchResult written by the finalize-run-cancel job."""
+
+    __tablename__ = "workflow_run_cancel_audits"
+    __table_args__ = (
+        CheckConstraint(
+            "outcome IN ('stopped','cancelled','noop_unsupported',"
+            "'noop_already_delivered','noop_already_terminal','provider_error')",
+            name="ck_cancel_audit_outcome",
+        ),
+        Index("ix_cancel_audit_run", "run_id"),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration.workflow_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    provider_connection_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False
+    )
+    action_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True))
+    batch_correlation_id: Mapped[Optional[str]] = mapped_column(Text)
+    outcome: Mapped[str] = mapped_column(Text, nullable=False)
+    provider_status_code: Mapped[Optional[int]] = mapped_column(Integer)
+    provider_message: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class WorkflowRunNodeStep(Base):
@@ -349,7 +391,9 @@ class WorkflowRunRecipientState(Base):
             "run_id", "recipient_id", name="uq_workflow_run_recipient_states_run_recipient"
         ),
         CheckConstraint(
-            "status IN ('pending', 'running', 'waiting', 'ready', 'completed', 'skipped', 'failed', 'overridden')",
+            "status IN ('pending', 'running', 'waiting', 'ready', 'completed', 'skipped', "
+            "'failed', 'overridden', 'aborted', 'aborted_expired', 'skipped_capped', "
+            "'skipped_invalid_phone')",
             name="ck_workflow_run_recipient_states_status",
         ),
         CheckConstraint(
@@ -383,12 +427,61 @@ class WorkflowRunRecipientState(Base):
     )
     recipient_id: Mapped[str] = mapped_column(String(128), nullable=False)
     current_node_id: Mapped[Optional[str]] = mapped_column(String(64))
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     wakeup_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     error: Mapped[Optional[str]] = mapped_column(Text)
+    ignore_webhooks_after: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+
+class WorkflowRunRecipient(Base):
+    """Frozen-at-T0 manifest of recipients enrolled in a workflow run.
+
+    Immutable companion to ``WorkflowRunRecipientState``. The state row
+    mutates through the run; this row records the canonical
+    ``(run_id, recipient_id, phone_e164)`` set captured at T0, so dispatch
+    nodes can hard-reject any recipient that mutated into the cohort source
+    after the run started.
+    """
+
+    __tablename__ = "workflow_run_recipients"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id", "recipient_id", name="uq_workflow_run_recipients_run_recipient"
+        ),
+        Index(
+            "idx_workflow_run_recipients_tenant_app_phone",
+            "tenant_id",
+            "app_id",
+            "phone_e164",
+        ),
+        Index("idx_workflow_run_recipients_run", "run_id"),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration.workflow_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    recipient_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    phone_e164: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_cohort_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    predicate_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    frozen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class WorkflowRunRecipientAction(Base):
@@ -472,6 +565,12 @@ class WorkflowRunRecipientAction(Base):
     provider_terminal: Mapped[bool] = mapped_column(default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Generated column (migration 0066): payload->>'contact'. Read-only on the
+    # ORM side; the cap resolver indexes off it for O(log n) recent-action
+    # counting per phone.
+    contact_phone_e164: Mapped[Optional[str]] = mapped_column(
+        Text, Computed("payload ->> 'contact'", persisted=True)
+    )
 
 
 class WorkflowRunRecipientOverride(Base):
@@ -575,7 +674,8 @@ class CohortDatasetVersion(Base):
             "id_strategy IN ('column','uuid')", name="ck_dataset_id_strategy"
         ),
         CheckConstraint(
-            "source_type IN ('csv','gsheet','api')", name="ck_dataset_source_type"
+            "source_type IN ('csv','xlsx','gsheet','api')",
+            name="ck_dataset_source_type",
         ),
         CheckConstraint(
             "id_strategy <> 'column' OR id_column IS NOT NULL",
@@ -642,6 +742,126 @@ class CohortDatasetRow(Base):
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
 
 
+# ─── Cohort definition tier (saved cohorts) ──────────────────────────────────
+
+
+class CohortDefinition(ShareableMixin, Base):
+    asset_family = "cohort"
+    __tablename__ = "cohort_definitions"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "app_id", "slug", name="uq_cohort_definitions_scope_slug"
+        ),
+        Index(
+            "idx_cohort_definitions_tenant_app_active",
+            "tenant_id", "app_id", "active",
+        ),
+        Index(
+            "idx_cohort_definitions_tenant_app_visibility",
+            "tenant_id", "app_id", "visibility",
+        ),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("platform.tenants.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    slug: Mapped[str] = mapped_column(String(128), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    current_published_version_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "orchestration.cohort_definition_versions.id",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("platform.users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    user_id = synonym("created_by")
+
+
+class CohortDefinitionVersion(Base):
+    __tablename__ = "cohort_definition_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "cohort_definition_id", "version",
+            name="uq_cohort_definition_versions_def_version",
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'published', 'archived')",
+            name="ck_cohort_definition_versions_status",
+        ),
+        CheckConstraint(
+            "source_ref NOT LIKE 'dataset.%'",
+            name="ck_cohort_definition_versions_source_ref_not_dataset",
+        ),
+        Index(
+            "idx_cohort_definition_versions_def_version_desc",
+            "cohort_definition_id",
+            text("version DESC"),
+        ),
+        Index(
+            "idx_cohort_definition_versions_tenant_app_status",
+            "tenant_id", "app_id", "status",
+        ),
+        {"schema": "orchestration"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("platform.tenants.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    cohort_definition_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orchestration.cohort_definitions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    filters: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    payload_fields: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    lookback_hours: Mapped[Optional[int]] = mapped_column(Integer)
+    lookback_column: Mapped[Optional[str]] = mapped_column(String(128))
+    consent_gate_channel: Mapped[Optional[str]] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    published_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("platform.users.id")
+    )
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
 __all__ = [
     "Workflow",
     "WorkflowVersion",
@@ -651,9 +871,12 @@ __all__ = [
     "WorkflowRun",
     "WorkflowRunNodeStep",
     "WorkflowRunRecipientState",
+    "WorkflowRunRecipient",
     "WorkflowRunRecipientAction",
     "WorkflowRunRecipientOverride",
     "CohortDataset",
     "CohortDatasetVersion",
     "CohortDatasetRow",
+    "CohortDefinition",
+    "CohortDefinitionVersion",
 ]

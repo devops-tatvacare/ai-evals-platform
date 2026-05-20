@@ -1,11 +1,19 @@
-import { ShieldAlert } from 'lucide-react';
+import { BrickWallShield, Headset, ShieldAlert, type LucideIcon } from 'lucide-react';
 import { cn } from '@/utils';
+import type { AppIconKind } from './appIconKind';
 
-export type AppIconKind = 'image' | 'glyph';
+export type { AppIconKind };
+
+// Glyph names (lucide kebab-case) an app/admin config may reference.
+const GLYPHS: Record<string, LucideIcon> = {
+  'shield-alert': ShieldAlert,
+  'brick-wall-shield': BrickWallShield,
+  headset: Headset,
+};
 
 interface AppIconProps {
-  /** ``'image'`` renders the URL in ``value``; ``'glyph'`` renders the
-   *  matching lucide icon (currently only ``shield-alert`` for admin). */
+  /** ``'image'`` renders the URL in ``value``; ``'glyph'`` renders the lucide
+   *  icon named by ``iconValue`` (see ``GLYPHS``). */
   iconType: AppIconKind;
   iconValue: string;
   name: string;
@@ -30,6 +38,7 @@ export function AppIcon({ iconType, iconValue, name, className }: AppIconProps) 
       />
     );
   }
+  const Glyph = GLYPHS[iconValue] ?? ShieldAlert;
   return (
     <div
       className={cn(
@@ -38,7 +47,7 @@ export function AppIcon({ iconType, iconValue, name, className }: AppIconProps) 
       )}
       aria-label={name}
     >
-      <ShieldAlert className="h-4 w-4" />
+      <Glyph className="h-4 w-4" />
     </div>
   );
 }

@@ -89,7 +89,7 @@ export function PageSurface({
       <div
         className={cn(
           'flex min-h-0 flex-1 flex-col',
-          bleed ? '' : 'px-5 py-4',
+          bleed ? '' : 'px-5 pt-1 pb-4',
         )}
       >
         {children}

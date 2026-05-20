@@ -1958,6 +1958,7 @@ APP_SEEDS = [
                 "hasHumanReview": True,
                 "hasReviews": True,
                 "hasOrchestration": False,
+                "hasNotifications": False,
             },
             "reviews": {
                 "enabled": True,
@@ -1980,7 +1981,6 @@ APP_SEEDS = [
                 "prompt": "private",
                 "schema": "private",
                 "adversarial_contract": "private",
-                "llm_settings": "private",
             },
             "authorization": default_app_authorization_config(),
             "evalRun": {"supportedTypes": ["custom", "full_evaluation", "call_quality"]},
@@ -2007,8 +2007,6 @@ APP_SEEDS = [
                 "profile": "voice_rx_v1",
                 "capabilities": {
                     "singleRunReport": True,
-                    "crossRunAnalytics": True,
-                    "crossRunAiSummary": True,
                     "pdfExport": True,
                 },
                 "singleRun": {
@@ -2061,6 +2059,10 @@ APP_SEEDS = [
                 },
                 "assets": {
                     "glossaryKey": "voice-rx-report-glossary",
+                    # Phase 4 — config-shape addition only; the SHARED setting
+                    # row keyed by this string is seeded by Alembic migration
+                    # 0052_seed_narrative_system_prompts (NOT by seed_defaults).
+                    "narrativeTemplateKey": "report-narrative-template",
                 },
             },
             "chat": {
@@ -2090,6 +2092,16 @@ APP_SEEDS = [
                 },
             ],
             "evaluatorDetail": {"interpretationBands": []},
+            "runDetail": {
+                "runShape": "single",
+                "evalTypes": ["full_evaluation", "custom"],
+                "reportTab": {
+                    "enabled": True,
+                    "enabledForEvalTypes": ["full_evaluation"],
+                },
+                "extras": {"rawPayload": True},
+                "behaviour": {"failureHeadlineFromResult": True},
+            },
         },
     },
     {
@@ -2111,6 +2123,7 @@ APP_SEEDS = [
                 "hasHumanReview": False,
                 "hasReviews": True,
                 "hasOrchestration": False,
+                "hasNotifications": False,
             },
             "reviews": {
                 "enabled": True,
@@ -2133,7 +2146,6 @@ APP_SEEDS = [
                 "prompt": "private",
                 "schema": "private",
                 "adversarial_contract": "shared",
-                "llm_settings": "private",
             },
             "authorization": default_app_authorization_config(),
             "evalRun": {"supportedTypes": ["custom", "batch_thread", "batch_adversarial"]},
@@ -2154,8 +2166,6 @@ APP_SEEDS = [
                 "profile": "kaira_v1",
                 "capabilities": {
                     "singleRunReport": True,
-                    "crossRunAnalytics": True,
-                    "crossRunAiSummary": True,
                     "pdfExport": True,
                 },
                 "singleRun": {
@@ -2268,16 +2278,27 @@ APP_SEEDS = [
                 },
             ],
             "evaluatorDetail": {"interpretationBands": []},
+            "runDetail": {
+                "runShape": "batch",
+                "evalTypes": ["batch_thread", "batch_adversarial"],
+                "reportTab": {"enabled": True},
+                "extras": {
+                    "review": True,
+                    "adversarialAxes": True,
+                    "historyTab": True,
+                },
+                "behaviour": {"hideTabsWhileActive": True},
+            },
         },
     },
     {
         "slug": "inside-sales",
         "display_name": "Inside Sales",
         "description": "Inside sales call quality evaluation",
-        "icon_url": "/inside-sales-icon.svg",
+        "icon_url": "headset",
         "config": {
             "displayName": "Inside Sales",
-            "icon": "/inside-sales-icon.svg",
+            "icon": "headset",
             "description": "Inside sales call quality evaluation",
             "features": {
                 "hasRules": False,
@@ -2289,6 +2310,7 @@ APP_SEEDS = [
                 "hasHumanReview": False,
                 "hasReviews": True,
                 "hasOrchestration": True,
+                "hasNotifications": True,
             },
             "reviews": {
                 "enabled": True,
@@ -2312,7 +2334,6 @@ APP_SEEDS = [
                 "prompt": "private",
                 "schema": "private",
                 "adversarial_contract": "private",
-                "llm_settings": "private",
             },
             "authorization": default_app_authorization_config(),
             "evalRun": {"supportedTypes": ["custom", "full_evaluation", "call_quality"]},
@@ -2347,8 +2368,6 @@ APP_SEEDS = [
                 "profile": "inside_sales_v1",
                 "capabilities": {
                     "singleRunReport": True,
-                    "crossRunAnalytics": True,
-                    "crossRunAiSummary": True,
                     "pdfExport": True,
                 },
                 "singleRun": {
@@ -2447,6 +2466,19 @@ APP_SEEDS = [
                     {"color": "amber", "label": "Needs Work", "range": "50-64", "description": "Structured coaching required"},
                     {"color": "red", "label": "Poor", "range": "Below 50", "description": "Re-training recommended"},
                 ],
+            },
+            "runDetail": {
+                "runShape": "single",
+                "evalTypes": ["call_quality"],
+                "reportTab": {"enabled": True},
+                "extras": {
+                    "drilldown": {
+                        "paramName": "callId",
+                        "route": "calls/:callId",
+                        "backLabel": "Back to run",
+                    },
+                },
+                "behaviour": {"bannerOnlyOnFailed": True},
             },
         },
     },
@@ -2560,7 +2592,7 @@ def _build_narrative_config(scope: str, composition, asset_keys) -> dict:
             "glossaryKey": asset_keys.glossary_key,
         },
         "providerPolicy": {
-            "source": "llm-settings",
+            "source": "tenant_llm_credentials",
         },
     }
 
@@ -2578,7 +2610,7 @@ def _build_default_report_config_seeds() -> list[dict]:
         analytics = app_config.analytics
         scope_configs = (
             ("single_run", analytics.single_run, analytics.capabilities.single_run_report),
-            ("cross_run", analytics.cross_run, analytics.capabilities.cross_run_analytics),
+            ("cross_run", analytics.cross_run, bool(analytics.cross_run.sections)),
         )
 
         for scope, composition, enabled in scope_configs:
@@ -3300,6 +3332,9 @@ async def seed_all_defaults(session: AsyncSession) -> None:
     from app.services.analytics.signal_derivation.schedule_seed import (
         seed_signal_derivation_schedule,
     )
+    from app.services.orchestration.cancel.schedule_seed import (
+        seed_waiting_tail_sweep_schedule,
+    )
 
     logger.info("Checking seed defaults...")
     await seed_apps(session)
@@ -3313,6 +3348,7 @@ async def seed_all_defaults(session: AsyncSession) -> None:
     await seed_orchestration_defaults(session)
     await seed_model_pricing(session)
     await seed_cost_rollup_schedule(session)
+    await seed_waiting_tail_sweep_schedule(session)
     inserted_sigdef = await seed_default_signal_definitions(session)
     if inserted_sigdef:
         logger.info("Seeded default signal definitions (rows=%d)", inserted_sigdef)

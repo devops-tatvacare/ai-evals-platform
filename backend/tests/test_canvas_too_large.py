@@ -70,6 +70,7 @@ class CanvasTooLargeBuildTests(unittest.TestCase):
         with self.assertRaises(CanvasTooLargeError) as cm:
             build_authoring_specialist(
                 client, 'inside-sales',
+                model='gpt-4o-mini',
                 builder_context=snap,
                 auth=_make_auth(),
             )
@@ -86,6 +87,7 @@ class CanvasTooLargeBuildTests(unittest.TestCase):
         with self.assertRaises(CanvasTooLargeError):
             build_authoring_specialist(
                 client, 'inside-sales',
+                model='gpt-4o-mini',
                 builder_context=snap,
                 auth=_make_auth(),
             )
@@ -100,10 +102,10 @@ class CanvasTooLargeBuildTests(unittest.TestCase):
         # or registries.
         from app.services.sherlock_v3 import authoring_specialist as as_mod
         with patch.object(as_mod, 'OpenAIResponsesModel', MagicMock()), \
-             patch.object(as_mod, 'Agent', MagicMock(return_value='ok-agent')), \
-             patch.object(as_mod, 'specialist_model', MagicMock(return_value='m')):
+             patch.object(as_mod, 'Agent', MagicMock(return_value='ok-agent')):
             agent = build_authoring_specialist(
                 MagicMock(), 'inside-sales',
+                model='gpt-4o-mini',
                 builder_context=snap,
                 auth=_make_auth(),
             )
@@ -114,6 +116,7 @@ class CanvasTooLargeBuildTests(unittest.TestCase):
         with self.assertRaises(CanvasTooLargeError):
             build_authoring_specialist(
                 MagicMock(), 'inside-sales',
+                model='gpt-4o-mini',
                 builder_context=snap,
                 auth=_make_auth(),
             )
@@ -122,10 +125,10 @@ class CanvasTooLargeBuildTests(unittest.TestCase):
         snap = _snapshot_with_n_nodes(0)
         from app.services.sherlock_v3 import authoring_specialist as as_mod
         with patch.object(as_mod, 'OpenAIResponsesModel', MagicMock()), \
-             patch.object(as_mod, 'Agent', MagicMock(return_value='ok-agent')), \
-             patch.object(as_mod, 'specialist_model', MagicMock(return_value='m')):
+             patch.object(as_mod, 'Agent', MagicMock(return_value='ok-agent')):
             agent = build_authoring_specialist(
                 MagicMock(), 'inside-sales',
+                model='gpt-4o-mini',
                 builder_context=snap,
                 auth=_make_auth(),
             )
@@ -138,19 +141,25 @@ def _patched_supervisor_canvas_too_large():
     fake_client = MagicMock()
     captured: dict = {}
 
-    def _fake_build_data_specialist(client, app_id, *, grounding=None):
-        del client, app_id, grounding
+    def _fake_build_data_specialist(client, app_id, *, model, grounding=None):
+        del client, app_id, model, grounding
         agent = MagicMock()
         agent.as_tool = MagicMock(return_value='data_specialist_tool')
         return agent
 
-    def _fake_build_authoring_specialist(client, app_id, *, builder_context, auth):
-        del client, app_id, builder_context, auth
+    def _fake_build_authoring_specialist(client, app_id, *, model, builder_context, auth):
+        del client, app_id, model, builder_context, auth
         raise CanvasTooLargeError(
             reason_code='CANVAS_TOO_LARGE',
             summary=CANVAS_TOO_LARGE_SUMMARY,
             node_count=200,
         )
+
+    def _fake_build_query_synthesis_specialist(client, app_id, *, model, available_targets):
+        del client, app_id, model, available_targets
+        agent = MagicMock()
+        agent.as_tool = MagicMock(return_value='query_synthesis_specialist_tool')
+        return agent
 
     def _fake_agent(*args, **kwargs):
         captured['tools'] = kwargs.get('tools')
@@ -159,6 +168,7 @@ def _patched_supervisor_canvas_too_large():
     return fake_client, captured, [
         patch.object(sup_mod, 'build_data_specialist', side_effect=_fake_build_data_specialist),
         patch.object(sup_mod, 'build_authoring_specialist', side_effect=_fake_build_authoring_specialist),
+        patch.object(sup_mod, 'build_query_synthesis_specialist', side_effect=_fake_build_query_synthesis_specialist),
         patch.object(sup_mod, 'Agent', side_effect=_fake_agent),
         patch.object(sup_mod, 'OpenAIResponsesModel', MagicMock()),
     ]
@@ -167,15 +177,17 @@ def _patched_supervisor_canvas_too_large():
 class SupervisorSkipsAuthoringWhenCanvasTooLarge(unittest.TestCase):
     def test_supervisor_skips_authoring_tool_inclusion(self) -> None:
         fake_client, captured, patchers = _patched_supervisor_canvas_too_large()
-        with patchers[0], patchers[1], patchers[2], patchers[3]:
+        with patchers[0], patchers[1], patchers[2], patchers[3], patchers[4]:
             sup_mod.build_supervisor(
                 'inside-sales', fake_client,
+                supervisor_model='gpt-4o',
+                specialist_model='gpt-4o-mini',
                 builder_context=_snapshot_with_n_nodes(200),
                 auth=_make_auth(),
             )
         tools = captured.get('tools') or []
-        # Only data_specialist remains; authoring_specialist was refused.
-        self.assertEqual(tools, ['data_specialist_tool'])
+        # Only synthesis + data remain; authoring_specialist was refused.
+        self.assertEqual(tools, ['query_synthesis_specialist_tool', 'data_specialist_tool'])
 
 
 if __name__ == '__main__':

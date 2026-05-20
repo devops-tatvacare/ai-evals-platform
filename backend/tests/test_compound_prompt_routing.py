@@ -56,37 +56,46 @@ class SupervisorPromptCompoundRuleTests(unittest.TestCase):
     test pins the sentence so a future refactor cannot silently drop
     the sequencing instruction."""
 
-    def test_prompt_carries_data_first_authoring_second_rule(self) -> None:
-        # Match on the load-bearing fragment, not the whole sentence —
-        # leaves room for grammar tweaks without breaking the test.
+    def test_prompt_mandates_synthesis_first_with_decomposition_ordering(self) -> None:
+        # v3 sequencing: query_synthesis_specialist is always called first,
+        # then the supervisor dispatches sub-questions in the decomposition
+        # order. The compound-prompt guarantee is delivered by synthesis
+        # emitting ordered sub-questions (with depends_on_sub_question
+        # links), not by a hardcoded data-then-authoring rule.
         prompt = sup_mod._SUPERVISOR_PROMPT
-        self.assertIn('data_specialist FIRST', prompt)
-        self.assertIn('authoring_specialist', prompt)
-        self.assertIn('Never both in parallel', prompt)
+        self.assertIn('query_synthesis_specialist', prompt)
+        self.assertIn('first', prompt.lower())
+        self.assertIn('{available_tools_block}', prompt)
 
-    def test_rule_lives_inside_tool_persistence_rules_block(self) -> None:
+    def test_decomposition_ordering_lives_inside_tool_persistence_rules_block(self) -> None:
         prompt = sup_mod._SUPERVISOR_PROMPT
         block_start = prompt.index('<tool_persistence_rules>')
         block_end = prompt.index('</tool_persistence_rules>')
         block = prompt[block_start:block_end]
-        self.assertIn('data_specialist FIRST', block)
-        self.assertIn('Never both in parallel', block)
+        self.assertIn('order', block.lower())
+        self.assertIn('query synthesis', block.lower())
 
 
 def _patched_supervisor():
     fake_client = MagicMock()
     captured: dict = {}
 
-    def _fake_build_data_specialist(client, app_id, *, grounding=None):
-        del client, app_id, grounding
+    def _fake_build_data_specialist(client, app_id, *, model, grounding=None):
+        del client, app_id, model, grounding
         agent = MagicMock()
         agent.as_tool = MagicMock(return_value='data_specialist_tool')
         return agent
 
-    def _fake_build_authoring_specialist(client, app_id, *, builder_context, auth):
-        del client, app_id, builder_context, auth
+    def _fake_build_authoring_specialist(client, app_id, *, model, builder_context, auth):
+        del client, app_id, model, builder_context, auth
         agent = MagicMock()
         agent.as_tool = MagicMock(return_value='authoring_specialist_tool')
+        return agent
+
+    def _fake_build_query_synthesis_specialist(client, app_id, *, model, available_targets):
+        del client, app_id, model, available_targets
+        agent = MagicMock()
+        agent.as_tool = MagicMock(return_value='query_synthesis_specialist_tool')
         return agent
 
     def _fake_agent(*args, **kwargs):
@@ -97,6 +106,7 @@ def _patched_supervisor():
     return fake_client, captured, [
         patch.object(sup_mod, 'build_data_specialist', side_effect=_fake_build_data_specialist),
         patch.object(sup_mod, 'build_authoring_specialist', side_effect=_fake_build_authoring_specialist),
+        patch.object(sup_mod, 'build_query_synthesis_specialist', side_effect=_fake_build_query_synthesis_specialist),
         patch.object(sup_mod, 'Agent', side_effect=_fake_agent),
         patch.object(sup_mod, 'OpenAIResponsesModel', MagicMock()),
     ]
@@ -109,9 +119,11 @@ class SupervisorParallelDisabledTests(unittest.TestCase):
 
     def test_supervisor_keeps_parallel_tool_calls_false(self) -> None:
         fake_client, captured, patchers = _patched_supervisor()
-        with patchers[0], patchers[1], patchers[2], patchers[3]:
+        with patchers[0], patchers[1], patchers[2], patchers[3], patchers[4]:
             sup_mod.build_supervisor(
                 'inside-sales', fake_client,
+                supervisor_model='gpt-4o',
+                specialist_model='gpt-4o-mini',
                 builder_context=_make_snapshot(),
                 auth=_make_auth(),
             )
@@ -122,16 +134,18 @@ class SupervisorParallelDisabledTests(unittest.TestCase):
     def test_supervisor_includes_both_specialists_in_tool_list(self) -> None:
         # Sequencing only matters when both tools are on the surface.
         fake_client, captured, patchers = _patched_supervisor()
-        with patchers[0], patchers[1], patchers[2], patchers[3]:
+        with patchers[0], patchers[1], patchers[2], patchers[3], patchers[4]:
             sup_mod.build_supervisor(
                 'inside-sales', fake_client,
+                supervisor_model='gpt-4o',
+                specialist_model='gpt-4o-mini',
                 builder_context=_make_snapshot(),
                 auth=_make_auth(),
             )
         tools = captured.get('tools') or []
         self.assertEqual(
             tools,
-            ['data_specialist_tool', 'authoring_specialist_tool'],
+            ['query_synthesis_specialist_tool', 'data_specialist_tool', 'authoring_specialist_tool'],
         )
 
 

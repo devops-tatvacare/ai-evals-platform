@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import desc, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
 from app.models.application import Application
@@ -23,6 +24,7 @@ from app.services.reports.config_models import (
 )
 from app.services.reports.contracts.cross_run_report import PlatformCrossRunPayload
 from app.services.reports.contracts.run_report import PlatformRunReportPayload
+from app.services.reports.data_quality_finalizer import finalize_data_quality
 from app.services.reports.document_composer import compose_document
 from app.services.reports.narrative_executor import execute_narrative_generation
 from app.services.reports.report_composer import compose_cross_run_report, compose_run_report
@@ -34,7 +36,7 @@ from app.services.access_control import readable_scope_clause
 from app.services.reports.contracts.run_report import PlatformReportPresentation
 from app.services.evaluators.llm_base import LoggingLLMWrapper, create_llm_provider
 from app.services.evaluators.runner_utils import save_api_log, make_usage_callback
-from app.services.evaluators.settings_helper import get_llm_settings_from_db
+from app.services.llm_credentials import resolve_llm_call
 
 
 def _serialize_section_payloads(sections) -> dict[str, Any]:
@@ -165,32 +167,45 @@ async def _load_run_and_profile(db, *, tenant_id: uuid.UUID, user_id: uuid.UUID,
 
 async def _create_logging_llm(
     *,
+    db: AsyncSession,
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
     app_id: str,
     report_id: str,
     provider_override: str | None,
     model_override: str | None,
+    run_provider: str | None = None,
+    run_model: str | None = None,
 ):
-    settings = await get_llm_settings_from_db(
-        tenant_id=tenant_id,
-        user_id=user_id,
-        auth_intent='managed_job',
-        provider_override=provider_override or None,
-    )
-    effective_provider = provider_override or settings['provider']
-    effective_model = model_override or settings['selected_model']
-    if not effective_model:
+    effective_provider = provider_override or run_provider
+    effective_model = model_override or run_model
+    if not effective_provider or not effective_model:
         return None, None, None
 
-    provider = create_llm_provider(
-        provider=effective_provider,
-        api_key=settings['api_key'],
-        model_name=effective_model,
-        service_account_path=settings.get('service_account_path', ''),
-        azure_endpoint=settings.get('azure_endpoint', ''),
-        api_version=settings.get('api_version', ''),
+    resolved = await resolve_llm_call(
+        db, tenant_id, "report_generation",
+        provider_override=effective_provider or None,
+        model_override=effective_model or None,
     )
+
+    factory_kwargs: dict[str, Any] = {}
+    if resolved.provider == "azure_openai":
+        factory_kwargs["azure_endpoint"] = resolved.credentials.extra_config.get("base_url") or ""
+        factory_kwargs["api_version"] = (
+            resolved.api_version
+            or resolved.credentials.extra_config.get("api_version")
+            or "2025-03-01-preview"
+        )
+
+    provider = create_llm_provider(
+        provider=resolved.provider,
+        api_key=resolved.credentials.secret.get("api_key", ""),
+        model_name=resolved.model,
+        service_account_path=resolved.credentials.service_account_path or "",
+        **factory_kwargs,
+    )
+    effective_provider = resolved.provider
+    effective_model = resolved.model
     try:
         report_uuid: uuid.UUID | None = uuid.UUID(str(report_id))
     except (ValueError, AttributeError, TypeError):
@@ -244,6 +259,16 @@ async def _compose_single_run_payload(
         'report_run_id': str(report_run.id),
     })
     section_payloads = _serialize_section_payloads(base_payload.sections)
+    # Phase 2 — services populate data_quality.missing_inputs in _build_payload;
+    # the finalizer below owns section_status + overall.
+    service_missing_inputs = list(base_payload.data_quality.missing_inputs)
+
+    # narrative_status default: 'disabled' if config flag is off; updated in the
+    # branches below. The dead service-level try/except blocks at
+    # inside_sales_report_service.py:84 / report_service.py:119 are NOT on this
+    # path — narrative now runs via the generic execute_narrative_generation
+    # call below. See plan G6.
+    narrative_status: str = 'disabled'
 
     narrative_config = NarrativeConfig.model_validate(report_config.narrative_config or {})
     if narrative_config.enabled:
@@ -255,12 +280,15 @@ async def _compose_single_run_payload(
             asset_keys=narrative_config.asset_keys,
         )
         llm, effective_provider, effective_model = await _create_logging_llm(
+            db=db,
             tenant_id=tenant_id,
             user_id=user_id,
             app_id=run.app_id,
             report_id=report_config.report_id,
             provider_override=llm_provider,
             model_override=llm_model,
+            run_provider=run.llm_provider,
+            run_model=run.llm_model,
         )
         if llm is not None:
             narrative_payloads = await execute_narrative_generation(
@@ -286,6 +314,11 @@ async def _compose_single_run_payload(
                     'narrative_model': effective_model,
                 }
             )
+            narrative_status = 'completed'
+        else:
+            # _create_logging_llm returned (None, None, None) — no provider/model
+            # resolved. The job still ships an artifact, but narrative is empty.
+            narrative_status = 'skipped_no_model'
 
     presentation_config = PresentationConfig.model_validate(report_config.presentation_config or {})
     export_config = ExportConfig.model_validate(report_config.export_config or {})
@@ -313,6 +346,7 @@ async def _compose_single_run_payload(
             sections=[],
             export_config=export_config,
             theme_tokens=presentation_config.theme_tokens,
+            composition_theme=analytics_config.single_run.theme,
         ),
     ).sections
     export_document = compose_document(
@@ -327,7 +361,10 @@ async def _compose_single_run_payload(
         sections=pre_sections,
         export_config=export_config,
         theme_tokens=presentation_config.theme_tokens,
+        composition_theme=analytics_config.single_run.theme,
     )
+    # Stamp narrative_status now so the composed payload carries it.
+    metadata = metadata.model_copy(update={'narrative_status': narrative_status})
     payload = compose_run_report(
         metadata=metadata,
         presentation=PlatformReportPresentation(
@@ -342,6 +379,17 @@ async def _compose_single_run_payload(
         section_payloads=section_payloads,
         export_document=export_document,
     )
+    # Phase 2 finalizer — sees all four section-id sets together and is the
+    # single owner of section_status + overall (services contribute only
+    # missing_inputs). See contracts/data_quality.py docstring.
+    data_quality = finalize_data_quality(
+        missing_inputs=service_missing_inputs,
+        configured_section_ids=[s.id for s in analytics_config.single_run.sections],
+        produced_section_payload_ids=set(section_payloads.keys()),
+        composed_section_ids={s.id for s in payload.sections},
+        exported_section_ids=list(export_config.section_ids or []),
+    )
+    payload = payload.model_copy(update={'data_quality': data_quality})
     return payload, metadata.llm_provider, metadata.llm_model
 
 
@@ -572,6 +620,7 @@ async def generate_cross_run_report_artifact(
                     asset_keys=narrative_config.asset_keys,
                 )
                 llm, effective_provider, effective_model = await _create_logging_llm(
+                    db=db,
                     tenant_id=tenant_id,
                     user_id=user_id,
                     app_id=app_id,
@@ -621,6 +670,7 @@ async def generate_cross_run_report_artifact(
                     sections=pre_sections,
                     export_config=export_config,
                     theme_tokens=presentation_config.theme_tokens,
+                    composition_theme=analytics_config.cross_run.theme,
                 )
             payload = compose_cross_run_report(
                 metadata=metadata,

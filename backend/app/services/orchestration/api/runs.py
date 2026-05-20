@@ -13,6 +13,7 @@ from app.models.mixins.shareable import Visibility
 from app.models.orchestration import (
     Workflow,
     WorkflowRun,
+    WorkflowRunCancelAudit,
     WorkflowRunNodeStep,
     WorkflowRunRecipientAction,
     WorkflowRunRecipientOverride,
@@ -241,6 +242,25 @@ async def list_actions(
     return list((await db.execute(stmt)).scalars().all())
 
 
+async def list_cancel_audits(
+    db: AsyncSession,
+    *,
+    tenant_id: uuid.UUID,
+    run_id: uuid.UUID,
+) -> list[WorkflowRunCancelAudit]:
+    stmt = (
+        select(WorkflowRunCancelAudit)
+        .where(
+            WorkflowRunCancelAudit.run_id == run_id,
+            WorkflowRunCancelAudit.tenant_id == tenant_id,
+        )
+        # id tiebreaker keeps ordering stable when finalize writes a batch of
+        # audits in one commit (shared created_at).
+        .order_by(WorkflowRunCancelAudit.created_at.asc(), WorkflowRunCancelAudit.id.asc())
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
 async def list_actions_global(
     db: AsyncSession,
     *,
@@ -367,23 +387,6 @@ async def get_action(
             WorkflowRunRecipientAction.id == action_id,
         )
     )).scalar_one_or_none()
-
-
-async def cancel_run(
-    db: AsyncSession, *, tenant_id: uuid.UUID, run_id: uuid.UUID,
-) -> bool:
-    run = await get_run(db, tenant_id=tenant_id, run_id=run_id)
-    if run is None:
-        return False
-    if run.status in ("completed", "failed", "cancelled"):
-        return True
-    from app.services.job_worker import mark_job_cancelled
-    if run.job_id:
-        mark_job_cancelled(str(run.job_id))
-    run.status = "cancelled"
-    run.completed_at = datetime.now(timezone.utc)
-    await db.commit()
-    return True
 
 
 async def apply_override(

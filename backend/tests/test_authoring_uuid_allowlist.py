@@ -94,7 +94,7 @@ class UuidAllowlistEnforcementTests(unittest.IsolatedAsyncioTestCase):
             'op': 'add_node',
             'node_id': 'wati1',
             'payload': {
-                'node_type': 'crm.send_wati',
+                'node_type': 'core.webhook_out',
                 'config': {
                     'connection_id': str(uuid.uuid4()),
                     'template_slug': 'welcome_v1',

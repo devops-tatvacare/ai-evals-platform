@@ -172,7 +172,7 @@ class SynthesisBriefTargetGatingTests(unittest.TestCase):
 class SynthesisPromptTests(unittest.TestCase):
     def test_prompt_includes_current_date_for_relative_time(self) -> None:
         agent = build_query_synthesis_specialist(
-            MagicMock(), 'inside-sales', available_targets=['data_specialist'],
+            MagicMock(), 'inside-sales', model='gpt-4o-mini', available_targets=['data_specialist'],
         )
         prompt = agent.instructions
         assert isinstance(prompt, str)
@@ -180,7 +180,7 @@ class SynthesisPromptTests(unittest.TestCase):
 
     def test_prompt_keeps_data_part_when_authoring_unavailable(self) -> None:
         agent = build_query_synthesis_specialist(
-            MagicMock(), 'inside-sales', available_targets=['data_specialist'],
+            MagicMock(), 'inside-sales', model='gpt-4o-mini', available_targets=['data_specialist'],
         )
         prompt = agent.instructions
         assert isinstance(prompt, str)

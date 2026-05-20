@@ -4,7 +4,6 @@ import { QueryClientProvider } from '@tanstack/react-query';
 
 import { ThemeProvider } from './ThemeProvider';
 import { useAuthStore } from '@/stores/authStore';
-import { useLLMSettingsStore } from '@/stores/llmSettingsStore';
 import { useAppSettingsStore } from '@/stores/appSettingsStore';
 import { queryClient } from '@/features/orchestration/queries/queryClient';
 
@@ -19,7 +18,8 @@ const ReactQueryDevtools = import.meta.env.DEV
   : null;
 
 function loadAllStores() {
-  useLLMSettingsStore.getState().loadSettings();
+  // LLM credentials are admin-managed (Phase 2 AI Settings page) and fetched
+  // on demand via TanStack Query, so there is no boot-time load anymore.
   useAppSettingsStore.getState().loadCredentialsFromBackend('voice-rx');
   useAppSettingsStore.getState().loadCredentialsFromBackend('kaira-bot');
 }

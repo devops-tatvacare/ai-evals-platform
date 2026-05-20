@@ -6,27 +6,25 @@ import { usePermission } from '@/utils/permissions';
 import { runsForApp } from '@/config/routes';
 import { LoadingState, PageSurface } from '@/components/ui';
 import { InlineReviewProvider } from '@/features/reviews/inline';
-import { RUN_DETAIL_REGISTRY } from './runDetail/registry';
+import { useRunDetail } from './runDetail/hooks';
 
 /**
  * The single run-detail page for every app. Routed at `/runs/:runId`,
  * `/kaira/runs/:runId`, `/inside-sales/runs/:runId(/calls/:callId)`, etc.
  *
  * It owns the shared shell — PageSurface, InlineReviewProvider and the bounded
- * `flex flex-1 min-h-0 flex-col` body container — and nothing else. Every
- * per-app concern (data fetching, header, body, sub-routes) comes from the
- * app's entry in `RUN_DETAIL_REGISTRY`. There is no `app_id` branching here, so
- * the layout cannot drift per app the way the old forked pages did.
+ * `flex flex-1 min-h-0 flex-col` body container — and nothing else. Per-app
+ * fetching / header / body / sub-routes come from `useRunDetail`, which
+ * dispatches on `App.config.runDetail.runShape`. There is no `app_id`
+ * branching here.
  */
 export function RunDetailPage() {
   const { runId, callId } = useParams<{ runId: string; callId?: string }>();
   const appId = useCurrentAppId();
   const { icon } = usePageMetadata('runDetail');
   const canReview = usePermission('review:manage');
-  const entry = RUN_DETAIL_REGISTRY[appId];
 
-  // Hook is always called — `entry` is stable for the route's lifetime.
-  const view = entry.useRunDetail(runId ?? '', callId);
+  const view = useRunDetail(appId, runId ?? '', callId);
   const back = { to: runsForApp(appId), label: 'Runs' };
 
   if (view.phase === 'loading') {

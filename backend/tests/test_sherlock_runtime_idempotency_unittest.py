@@ -67,7 +67,6 @@ class SherlockRuntimeIdempotencyTests(unittest.IsolatedAsyncioTestCase):
             provider='openai',
             model='gpt-5.4',
             message_state=[],
-            scratchpad={},
             next_event_seq=1,
         )
         db = _FakeAsyncSession()
@@ -101,7 +100,6 @@ class SherlockRuntimeIdempotencyTests(unittest.IsolatedAsyncioTestCase):
             provider='openai',
             model='gpt-5.4',
             message_state=[],
-            scratchpad={},
             next_event_seq=1,
         )
         existing_row = SherlockConversationTurn(

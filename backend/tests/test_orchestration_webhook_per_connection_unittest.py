@@ -174,12 +174,12 @@ async def test_bolna_webhook_with_valid_connection_token_accepts(
         provider="bolna", token=token,
     )
 
-    # Pre-existing bolna_queued action so the webhook handler has a row to flip.
+    # Pre-existing voice_queued action so the webhook handler has a row to flip.
     db_session.add(WorkflowRunRecipientAction(
         id=uuid.uuid4(), tenant_id=tenant_id, app_id=app_id,
         workflow_id=workflow.id, workflow_version_id=version.id,
         run_id=run.id, node_step_id=node_step.id, recipient_id="L-bolna",
-        channel="bolna", action_type="bolna_queued", status="success",
+        channel="voice", action_type="voice_queued", status="success",
         idempotency_key=f"k-{uuid.uuid4().hex[:8]}",
         payload={}, response={"execution_id": "ex-1"},
     ))

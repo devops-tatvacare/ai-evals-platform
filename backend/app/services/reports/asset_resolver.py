@@ -15,12 +15,8 @@ from app.models.application_setting import ApplicationSetting
 from app.schemas.app_analytics_config import AnalyticsAssetKeys
 from app.services.access_control import shared_visibility_clause
 from app.services.reports.config_models import NarrativeAssetKeys
-from app.services.reports.prompts.inside_sales_narrative_prompt import (
-    INSIDE_SALES_NARRATIVE_SYSTEM_PROMPT,
-)
 from app.services.reports.prompts.narrative_prompt import (
     ADVERSARIAL_NARRATIVE_SYSTEM_PROMPT,
-    NARRATIVE_SYSTEM_PROMPT,
 )
 
 
@@ -39,15 +35,13 @@ class ResolvedNarrativeAssets:
     glossary: str | None = None
 
 
-def _narrative_defaults_for_app(app_id: str) -> str | None:
-    return {
-        'kaira-bot': NARRATIVE_SYSTEM_PROMPT,
-        'inside-sales': INSIDE_SALES_NARRATIVE_SYSTEM_PROMPT,
-        'voice-rx': (
-            'You are a clinical transcription QA analyst. Summarize the evaluation accurately, '
-            'using only the evidence and counts provided in the analytics payload.'
-        ),
-    }.get(app_id)
+# _narrative_defaults_for_app was the per-app Python-literal fallback. Removed
+# in Phase 4 (Alembic migration 0052_seed_narrative_system_prompts seeds the
+# three SYSTEM-shared application_settings rows the cascade now resolves).
+# Boot validator config_validator.validate_reporting_config asserts the cascade
+# resolves a non-empty prompt for every app with capabilities.singleRunReport=
+# true + narrative_config.enabled=true, so a missing migration row fails boot
+# instead of producing a silent placeholder narrative.
 
 
 async def _resolve_setting_value(
@@ -161,7 +155,7 @@ async def resolve_report_assets(
 
     prompt_references = _extract_prompt_references(prompt_value)
 
-    narrative_template = _extract_content(narrative_value) or _narrative_defaults_for_app(app_id)
+    narrative_template = _extract_content(narrative_value)
     glossary = _extract_content(glossary_value)
 
     return ResolvedReportAssets(
@@ -204,6 +198,6 @@ async def resolve_report_config_assets(
 
     return ResolvedNarrativeAssets(
         prompt_references=_extract_prompt_references(prompt_value),
-        system_prompt=_extract_content(system_prompt_value) or _narrative_defaults_for_app(app_id),
+        system_prompt=_extract_content(system_prompt_value),
         glossary=_extract_content(glossary_value),
     )

@@ -345,6 +345,9 @@ async def create_schedule(
         next_check_at=next_cron_tick(cron, now),
         current_cycle_attempts=0,
         created_by=auth.user_id,
+        created_by_user_email_snapshot=auth.email,
+        notify_owner_on_failure=payload.notify_owner_on_failure,
+        notify_emails_on_failure=list(payload.notify_emails_on_failure),
         created_at=now,
         updated_at=now,
     )
@@ -387,6 +390,10 @@ async def update_schedule(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         schedule.cron = new_cron
         schedule.next_check_at = next_cron_tick(new_cron, datetime.now(timezone.utc))
+    if "notify_owner_on_failure" in data:
+        schedule.notify_owner_on_failure = bool(data["notify_owner_on_failure"])
+    if "notify_emails_on_failure" in data:
+        schedule.notify_emails_on_failure = list(data["notify_emails_on_failure"] or [])
     await db.commit()
     await db.refresh(schedule)
     return _serialize_schedule(schedule)

@@ -14,6 +14,9 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+    // Pin one React copy so a mid-session dep re-optimize can't spawn a second
+    // instance and null the hook dispatcher ("Invalid hook call").
+    dedupe: ['react', 'react-dom'],
   },
   test: {
     globals: true,

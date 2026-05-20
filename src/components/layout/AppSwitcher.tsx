@@ -12,6 +12,7 @@ import {
   userHasPermission,
 } from '@/utils/permissions';
 import { AppIcon, type AppIconKind } from './AppIcon';
+import { iconKindOf } from './appIconKind';
 
 interface AppConfig {
   id: AppId | 'admin-view';
@@ -42,7 +43,7 @@ export function AppSwitcher() {
       id: appId,
       name: metadata.name,
       route: homeRouteForApp(appId),
-      iconType: 'image' as const,
+      iconType: iconKindOf(metadata.icon),
       iconValue: metadata.icon,
     };
   });
@@ -53,7 +54,7 @@ export function AppSwitcher() {
         name: 'Admin',
         route: adminRoute,
         iconType: 'glyph',
-        iconValue: 'shield-alert',
+        iconValue: 'brick-wall-shield',
       }
     : null;
 

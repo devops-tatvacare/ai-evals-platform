@@ -57,6 +57,9 @@ class WorkerStartupTests(unittest.IsolatedAsyncioTestCase):
         async def fake_recover_stale_source_sync_runs():
             calls.append('recover_source_sync_runs')
 
+        async def fake_recover_stale_workflow_runs():
+            calls.append('recover_workflow_runs')
+
         async def fake_worker_loop():
             calls.append('worker_loop')
 
@@ -68,6 +71,7 @@ class WorkerStartupTests(unittest.IsolatedAsyncioTestCase):
             patch.object(worker_entry, 'recover_stale_jobs', side_effect=fake_recover_stale_jobs),
             patch.object(worker_entry, 'recover_stale_eval_runs', side_effect=fake_recover_stale_eval_runs),
             patch.object(worker_entry, 'recover_stale_source_sync_runs', side_effect=fake_recover_stale_source_sync_runs),
+            patch.object(worker_entry, 'recover_stale_workflow_runs', side_effect=fake_recover_stale_workflow_runs),
             patch.object(worker_entry, 'worker_loop', side_effect=fake_worker_loop),
             patch.object(worker_entry, 'recovery_loop', side_effect=fake_recovery_loop),
             patch.object(worker_entry.settings, 'SCHEDULER_TICK_INTERVAL_SECONDS', 0),
@@ -80,5 +84,6 @@ class WorkerStartupTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('recover_jobs', calls)
         self.assertIn('recover_runs', calls)
         self.assertIn('recover_source_sync_runs', calls)
+        self.assertIn('recover_workflow_runs', calls)
         self.assertIn('worker_loop', calls)
         self.assertIn('recovery_loop', calls)

@@ -11,7 +11,7 @@ import { filterEvaluatorsByVisibility } from '@/services/api/evaluatorsApi';
 
 
 import { notificationService } from '@/services/notifications';
-import { useEvaluatorsStore, LLM_PROVIDERS } from '@/stores';
+import { useEvaluatorsStore } from '@/stores';
 import { useAuthStore } from '@/stores/authStore';
 import { usePermission } from '@/utils/permissions';
 import { evaluatorShowsInHeader, getEvaluatorMainMetricField, setEvaluatorHeaderVisibility } from '@/features/evals/utils/evaluatorMetadata';
@@ -21,8 +21,8 @@ import type {
   EvaluatorVisibilityFilter,
   KairaChatMessage,
   KairaChatSession,
-  LLMProvider,
 } from '@/types';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
 
 interface KairaBotEvaluatorsViewProps {
   session: KairaChatSession | null;
@@ -45,7 +45,7 @@ export function KairaBotEvaluatorsView({ session }: KairaBotEvaluatorsViewProps)
   const [isSeeding, setIsSeeding] = useState(false);
   const [runAllOpen, setRunAllOpen] = useState(false);
   const [runSingleEvaluatorId, setRunSingleEvaluatorId] = useState<string | undefined>();
-  const [selectedProvider, setSelectedProvider] = useState<LLMProvider>(LLM_PROVIDERS[0].value);
+  const [selectedProvider, setSelectedProvider] = useState<LLMProvider | ''>('');
   const [selectedModel, setSelectedModel] = useState('');
 
   const providerRef = useRef(selectedProvider);

@@ -36,18 +36,19 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 async def _check_allowed_domains(email: str, tenant_id, db: AsyncSession) -> None:
     """Raise 403 if the tenant restricts email domains and this email doesn't match."""
-    config = await db.scalar(
-        select(TenantConfiguration).where(TenantConfiguration.tenant_id == tenant_id)
+    from app.services.tenant_policy import (
+        is_email_domain_allowed,
+        load_tenant_allowed_domains,
     )
-    if not config or not config.allowed_domains:
-        return  # No restrictions
-    email_lower = email.strip().lower()
-    for domain in config.allowed_domains:
-        if email_lower.endswith(domain.lower()):
-            return
+
+    allowed = await load_tenant_allowed_domains(db, tenant_id)
+    if not allowed:
+        return
+    if is_email_domain_allowed(email, allowed):
+        return
     raise HTTPException(
         403,
-        detail=f"Email domain not allowed. Permitted domains: {', '.join(config.allowed_domains)}",
+        detail=f"Email domain not allowed. Permitted domains: {', '.join(allowed)}",
     )
 
 
@@ -384,7 +385,17 @@ async def signup(
 
     await db.flush()
 
-    # 5a. Recompute status inside the same FOR UPDATE window so an invite
+    # 5a. Provision admin-required notification subscriptions on signup so
+    # required-for-all defaults reach users created after the admin flipped them.
+    from app.services.mail.onboarding import provision_required_subscriptions_for_user
+    await provision_required_subscriptions_for_user(
+        db,
+        tenant_id=user.tenant_id,
+        user_id=user.id,
+        user_email=user.email,
+    )
+
+    # 5b. Recompute status inside the same FOR UPDATE window so an invite
     #     that just hit ``max_uses`` flips ACTIVE → EXHAUSTED on the row.
     invite.status = compute_invite_status(
         is_revoked=invite.is_revoked,
@@ -394,7 +405,7 @@ async def signup(
         now=datetime.now(timezone.utc),
     )
 
-    # 5b. Forensic audit row: who redeemed this invite, from where.
+    # 5c. Forensic audit row: who redeemed this invite, from where.
     client_ip = request.client.host if request.client else None
     db.add(IdentityInviteLinkUse(
         invite_link_id=invite.id,

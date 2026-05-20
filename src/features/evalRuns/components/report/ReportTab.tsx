@@ -1,15 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { Clock, Download, FileBarChart, Loader2, RefreshCw, Settings2, Sparkles } from 'lucide-react';
+import { Ban, Clock, Download, FileBarChart, Loader2, RefreshCw, Settings2, Sparkles } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 
-import { Button, EmptyState, LLMConfigSection, Select, Tooltip, type SelectOption } from '@/components/ui';
+import { Button, EmptyState, LegacyLlmConfigCompat, Select, Tooltip, type SelectOption } from '@/components/ui';
+import { cn } from '@/utils';
 import { SettingsSlideOver } from '@/features/settings/components/SettingsSlideOver';
 import { ManageBlueprintsSlideOver } from './ManageBlueprintsSlideOver';
 import { formatPdfExportError } from './pdfExportError';
 import { pollJobUntilComplete, submitAndPollJob, type JobProgress } from '@/services/api/jobPolling';
+import { jobsApi } from '@/services/api/jobsApi';
 import { reportsApi } from '@/services/api/reportsApi';
 import { notificationService } from '@/services/notifications';
-import { hasProviderCredentials, LLM_PROVIDERS, useLLMSettingsStore } from '@/stores';
-import type { AppId, LLMProvider, ReportConfigSummary, ReportRunSummary } from '@/types';
+import { useProviderConfigs } from '@/services/api/aiSettingsQueries';
+import {
+  invalidateReportConfigs,
+  invalidateReportRuns,
+  useReportConfigs,
+  useReportRunArtifact,
+  useReportRuns,
+} from '@/features/reports/queries/reportsQueries';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
+import type { AppId, ReportConfigSummary, ReportRunSummary } from '@/types';
 import { usePermission } from '@/utils/permissions';
 import { useChatWidgetStore } from '@/features/chat-widget/useChatWidget';
 
@@ -25,6 +36,12 @@ interface ReportPayloadLike {
 interface Props<TReport> {
   appId: AppId;
   runId: string;
+  /** Eval run display name — accepted for API compatibility; the page header already
+   *  shows it, so the hero no longer renders it (dedup pass 2026-05-19). */
+  runName?: string | null;
+  /** Optional list of section titles the configured blueprint will emit, used
+   *  by the hero to preview the report shape from contract. */
+  sectionsPreview?: SectionPreview[];
   supportsPdf?: boolean;
   renderReport: (report: TReport, actions: ReactNode) => ReactNode;
 }
@@ -70,8 +87,59 @@ function getVariantTheme(config: ReportConfigSummary | null): ReportVariantTheme
   };
 }
 
+interface SectionPreview {
+  id: string;
+  title: string;
+}
+
+// Faded, non-animated mock of a generated report so the empty state previews
+// the deliverable instead of leaving a void behind the call-to-action.
+function ReportGhostPreview() {
+  const block = 'rounded-[var(--radius-default)] bg-[var(--bg-tertiary)]';
+  const card = 'rounded-[var(--radius-lg)] border border-[var(--border-subtle)] p-4';
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute inset-0 select-none overflow-hidden p-6 md:p-8"
+      style={{
+        maskImage: 'linear-gradient(to bottom, black 25%, transparent 92%)',
+        WebkitMaskImage: 'linear-gradient(to bottom, black 25%, transparent 92%)',
+      }}
+    >
+      <div className="mx-auto max-w-4xl space-y-5">
+        <div className="space-y-2">
+          <div className={cn(block, 'h-5 w-48')} />
+          <div className={cn(block, 'h-3 w-72')} />
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className={cn(card, 'space-y-2')}>
+              <div className={cn(block, 'h-3 w-2/3')} />
+              <div className={cn(block, 'h-6 w-1/2')} />
+            </div>
+          ))}
+        </div>
+        <div className={cn(card, 'space-y-3')}>
+          <div className={cn(block, 'h-3 w-40')} />
+          <div className="flex h-32 items-end gap-2">
+            {[62, 88, 44, 73, 56, 92, 48].map((h, i) => (
+              <div key={i} className={cn(block, 'flex-1')} style={{ height: `${h}%` }} />
+            ))}
+          </div>
+        </div>
+        <div className="space-y-2">
+          <div className={cn(block, 'h-3 w-full')} />
+          <div className={cn(block, 'h-3 w-11/12')} />
+          <div className={cn(block, 'h-3 w-3/4')} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReportZeroState({
   config,
+  sectionsPreview,
   canGenerate,
   actionLabel,
   onGenerate,
@@ -79,6 +147,7 @@ function ReportZeroState({
   errorMessage,
 }: {
   config: ReportConfigSummary | null;
+  sectionsPreview?: SectionPreview[];
   canGenerate: boolean;
   actionLabel: string;
   onGenerate: () => void;
@@ -89,83 +158,116 @@ function ReportZeroState({
   const heroStyle: CSSProperties = {
     background: `linear-gradient(135deg, ${theme.accent} 0%, color-mix(in srgb, ${theme.accent} 55%, var(--color-neutral-900)) 100%)`,
   };
-  const chipStyle: CSSProperties = {
-    backgroundColor: theme.accentMuted,
-    color: theme.accent,
-  };
+
+  // Page header already names the run; the card carries blueprint identity, the
+  // value line, the action, and section chips, floating over a ghost preview.
+  const blueprintLabel = config?.name?.trim() || 'Run report';
+  const sections = sectionsPreview ?? [];
 
   return (
-    <section className="overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)]">
-      <div className="px-7 py-8 text-white md:px-9 md:py-10" style={heroStyle}>
-        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/75">
-          <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1">Default single-run report</span>
-          <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 font-mono normal-case tracking-normal text-white/90">
-            {config?.reportId ?? 'default-single-run'}
+    <div className="relative min-h-[70vh] overflow-hidden">
+      <ReportGhostPreview />
+      <div className="relative flex min-h-[70vh] items-center justify-center px-4 py-12">
+        <div
+          className="w-full max-w-lg rounded-[var(--radius-lg)] px-8 py-9 text-center text-white shadow-[var(--shadow-lg)]"
+          style={heroStyle}
+        >
+          <span className="inline-block rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/80">
+            {blueprintLabel}
           </span>
-        </div>
-        <h2 className="mt-5 text-3xl font-semibold tracking-[-0.03em] md:text-[2.35rem]">
-          {config?.name ?? 'Run report'}
-        </h2>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-white/82 md:text-[15px]">
-          {errorMessage
-            ? errorMessage
-            : config?.description || 'Compose the narrative report for this run using the platform report contract and the default presentation theme.'}
-        </p>
-        <div className="mt-7">
-          {progressContent ? (
-            progressContent
-          ) : canGenerate ? (
-            <Button size="md" onClick={onGenerate}>
-              <Sparkles className="h-4 w-4" />
-              {actionLabel}
-            </Button>
+
+          {errorMessage ? (
+            <p className="mt-4 text-sm leading-6 text-white/85">{errorMessage}</p>
+          ) : !progressContent ? (
+            <p className="mt-4 text-sm leading-6 text-white/85">
+              Generate an AI-written report for this run — narrative, metrics, and recommendations.
+            </p>
+          ) : null}
+
+          <div className="mt-6 flex justify-center">
+            {progressContent ? (
+              progressContent
+            ) : canGenerate ? (
+              <Button size="md" onClick={onGenerate}>
+                <Sparkles className="h-4 w-4" />
+                {actionLabel}
+              </Button>
+            ) : null}
+          </div>
+
+          {sections.length > 0 && !progressContent ? (
+            <div className="mt-7 flex flex-wrap justify-center gap-1.5">
+              {sections.map((s) => (
+                <span
+                  key={s.id}
+                  className="inline-flex items-center rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/85"
+                >
+                  {s.title}
+                </span>
+              ))}
+            </div>
           ) : null}
         </div>
       </div>
-
-      <div className="grid gap-3 p-6 md:grid-cols-3">
-        <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
-          <div className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold" style={chipStyle}>
-            Executive summary
-          </div>
-          <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
-            AI-generated narrative, top issues, and recommendations rendered inside the platform report shell.
-          </p>
-        </div>
-        <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
-          <div className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold" style={chipStyle}>
-            Compliance and trends
-          </div>
-          <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
-            Rule compliance, verdict distributions, and metric breakdowns shown with the same document grammar as export.
-          </p>
-        </div>
-        <div className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] p-4">
-          <div className="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold" style={chipStyle}>
-            Exemplars and prompt gaps
-          </div>
-          <p className="mt-3 text-sm leading-6 text-[var(--text-secondary)]">
-            Best/worst examples, prompt gaps, and action items composed into a polished report instead of a raw analytics grid.
-          </p>
-        </div>
-      </div>
-    </section>
+    </div>
   );
 }
 
 export default function ReportTab<TReport extends ReportPayloadLike>({
   appId,
   runId,
+  sectionsPreview,
   supportsPdf = true,
   renderReport,
 }: Props<TReport>) {
-  const [configs, setConfigs] = useState<ReportConfigSummary[]>([]);
+  // Server data lives in TQ; selection + mutation flow stay local.
+  const queryClient = useQueryClient();
+  const configsQuery = useReportConfigs(appId, 'single_run');
+  const configs = useMemo(() => configsQuery.data ?? [], [configsQuery.data]);
+
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
-  const [reportRuns, setReportRuns] = useState<ReportRunSummary[]>([]);
   const [selectedReportRunId, setSelectedReportRunId] = useState<string | null>(null);
-  const [report, setReport] = useState<TReport | null>(null);
-  const [status, setStatus] = useState<Status>('loading');
-  const [error, setError] = useState<string | null>(null);
+
+  // Default selectedReportId once configs land (or change) — pick the default,
+  // else the first row, else nothing.
+  useEffect(() => {
+    if (!configs.length) {
+      setSelectedReportId(null);
+      return;
+    }
+    setSelectedReportId((current) => {
+      if (current && configs.some((c) => c.reportId === current)) return current;
+      return configs.find((c) => c.isDefault)?.reportId ?? configs[0]?.reportId ?? null;
+    });
+  }, [configs]);
+
+  const runsQuery = useReportRuns({
+    appId,
+    scope: 'single_run',
+    sourceEvalRunId: runId,
+    reportId: selectedReportId,
+    limit: 20,
+  });
+  const reportRuns = useMemo(() => runsQuery.data ?? [], [runsQuery.data]);
+
+  // Default selectedReportRunId when reportRuns change — prefer the most recent
+  // completed run, fall back to whatever's first in the list.
+  useEffect(() => {
+    setSelectedReportRunId((current) => {
+      if (current && reportRuns.some((r) => r.id === current)) return current;
+      return (
+        reportRuns.find((r) => r.status === 'completed')?.id ?? reportRuns[0]?.id ?? null
+      );
+    });
+  }, [reportRuns]);
+
+  const artifactQuery = useReportRunArtifact(selectedReportRunId);
+  const report = (artifactQuery.data ?? null) as TReport | null;
+
+  // Mutation-driven state — TQ doesn't model the job-poll lifecycle, so the
+  // generate/export flow keeps its own status + error + progress trio.
+  const [mutationStatus, setMutationStatus] = useState<'idle' | 'generating' | 'error'>('idle');
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [showGenerateOverlay, setShowGenerateOverlay] = useState(false);
   const [overlayReportId, setOverlayReportId] = useState<string | null>(null);
@@ -173,28 +275,30 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   const [progressMsg, setProgressMsg] = useState('');
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [jobPhase, setJobPhase] = useState<'queued' | 'running' | null>(null);
+  const [generatingJobId, setGeneratingJobId] = useState<string | null>(null);
+  const [cancellingGeneration, setCancellingGeneration] = useState(false);
   const pollAbortRef = useRef<AbortController | null>(null);
 
-  const [reportProvider, setReportProvider] = useState<LLMProvider>(LLM_PROVIDERS[0].value);
+  const [reportProvider, setReportProvider] = useState<LLMProvider | ''>('');
   const [reportModel, setReportModel] = useState('');
 
-  const geminiApiKey = useLLMSettingsStore((s) => s.geminiApiKey);
-  const openaiApiKey = useLLMSettingsStore((s) => s.openaiApiKey);
-  const azureApiKey = useLLMSettingsStore((s) => s.azureOpenaiApiKey);
-  const azureEndpoint = useLLMSettingsStore((s) => s.azureOpenaiEndpoint);
-  const anthropicApiKey = useLLMSettingsStore((s) => s.anthropicApiKey);
-  const serviceAccountConfigured = useLLMSettingsStore((s) => s._serviceAccountConfigured);
   const canGenerate = usePermission('report:generate');
   const canExport = usePermission('evaluation:export');
 
-  const credentialsReady = hasProviderCredentials(reportProvider, {
-    geminiApiKey,
-    openaiApiKey,
-    azureOpenaiApiKey: azureApiKey,
-    azureOpenaiEndpoint: azureEndpoint,
-    anthropicApiKey,
-    _serviceAccountConfigured: serviceAccountConfigured,
-  });
+  // Server-resolved BYOK: a run is ready to submit once the user has picked
+  // a provider+model from the admin-configured catalogue.
+  const { data: providerConfigs = [] } = useProviderConfigs();
+  const credentialsReady = useMemo(
+    () =>
+      Boolean(reportProvider) &&
+      providerConfigs.some(
+        (c) =>
+          c.provider === reportProvider &&
+          c.isEnabled &&
+          c.validationStatus === 'ok',
+      ),
+    [providerConfigs, reportProvider],
+  );
 
   const selectedConfig = useMemo(
     () => configs.find((config) => config.reportId === selectedReportId) ?? null,
@@ -224,60 +328,13 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
     [reportRuns, selectedReportRunId],
   );
 
-  const loadConfigs = useCallback(async () => {
-    const nextConfigs = await reportsApi.listReportConfigs(appId, 'single_run');
-    setConfigs(nextConfigs);
-    setSelectedReportId(nextConfigs.find((config) => config.isDefault)?.reportId ?? nextConfigs[0]?.reportId ?? null);
-    return nextConfigs;
-  }, [appId]);
-
-  const loadReportRuns = useCallback(async (reportId: string) => {
-    const nextRuns = await reportsApi.listReportRuns({
-      appId,
-      scope: 'single_run',
-      sourceEvalRunId: runId,
-      reportId,
-      limit: 20,
-    });
-    setReportRuns(nextRuns);
-    setSelectedReportRunId((current) => {
-      if (current && nextRuns.some((reportRun) => reportRun.id === current)) return current;
-      return nextRuns.find((reportRun) => reportRun.status === 'completed')?.id ?? nextRuns[0]?.id ?? null;
-    });
-    return nextRuns;
-  }, [appId, runId]);
-
-  const syncModelSelectionFromReport = useCallback((nextReport: TReport | null) => {
-    const metadata = getReportMetadata(nextReport);
+  // Mirror provider/model dropdowns to whatever the loaded report was generated
+  // with. Runs each time the artifact query produces a new payload.
+  useEffect(() => {
+    const metadata = getReportMetadata(report);
     if (metadata?.llmProvider) setReportProvider(metadata.llmProvider as LLMProvider);
     if (metadata?.llmModel) setReportModel(metadata.llmModel);
-  }, []);
-
-  const loadSelectedArtifact = useCallback(async (reportRun: ReportRunSummary | null) => {
-    if (!reportRun) {
-      setReport(null);
-      setStatus('idle');
-      return;
-    }
-
-    if (reportRun.status === 'failed' || reportRun.status === 'cancelled') {
-      setReport(null);
-      setError('Report generation failed. Click Generate to retry.');
-      setStatus('error');
-      return;
-    }
-
-    if (reportRun.status !== 'completed') {
-      setReport(null);
-      setStatus('generating');
-      return;
-    }
-
-    const nextReport = await reportsApi.fetchReportRunArtifact(reportRun.id) as unknown as TReport;
-    setReport(nextReport);
-    syncModelSelectionFromReport(nextReport);
-    setStatus('ready');
-  }, [syncModelSelectionFromReport]);
+  }, [report]);
 
   const handleJobProgress = useCallback((progress: JobProgress & { queuePosition?: number | null; status?: string }) => {
     const maybeStatus = progress.status;
@@ -298,7 +355,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
     pollAbortRef.current?.abort();
     const controller = new AbortController();
     pollAbortRef.current = controller;
-    setStatus('generating');
+    setMutationStatus('generating');
 
     try {
       await pollJobUntilComplete(reportRun.jobId, {
@@ -309,92 +366,108 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         },
       });
 
-      const refreshedRuns = await loadReportRuns(reportRun.reportId);
-      const completedRun = refreshedRuns.find((entry) => entry.id === reportRun.id && entry.status === 'completed')
-        ?? refreshedRuns.find((entry) => entry.status === 'completed');
-
-      if (completedRun) {
-        setSelectedReportRunId(completedRun.id);
-        await loadSelectedArtifact(completedRun);
-      } else {
-        setStatus('idle');
-      }
+      // Refresh the runs list so the just-completed row appears; selectedReportRunId
+      // remains pinned so the artifact query refetches automatically.
+      await invalidateReportRuns(queryClient, {
+        appId,
+        scope: 'single_run',
+        sourceEvalRunId: runId,
+      });
+      setMutationStatus('idle');
     } catch (jobError) {
       if (jobError instanceof DOMException && jobError.name === 'AbortError') return;
       const message = jobError instanceof Error ? jobError.message : 'Report generation failed';
-      setError(message);
-      setStatus('error');
+      setMutationError(message);
+      setMutationStatus('error');
     } finally {
       setProgressMsg('');
       setQueuePosition(null);
       setJobPhase(null);
     }
-  }, [handleJobProgress, loadReportRuns, loadSelectedArtifact]);
+  }, [appId, handleJobProgress, queryClient, runId]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setStatus('loading');
-    setError(null);
-    setReport(null);
-    setReportRuns([]);
-    setSelectedReportRunId(null);
-
-    void loadConfigs()
-      .then((nextConfigs) => {
-        if (cancelled) return;
-        if (nextConfigs.length === 0) {
-          setStatus('idle');
-        }
-      })
-      .catch((loadError) => {
-        if (cancelled) return;
-        setError(loadError instanceof Error ? loadError.message : 'Failed to load report configs');
-        setStatus('error');
-      });
-
-    return () => {
-      cancelled = true;
-      pollAbortRef.current?.abort();
-    };
-  }, [loadConfigs, runId]);
-
-  useEffect(() => {
-    if (!selectedReportId) return;
-    let cancelled = false;
-
-    void loadReportRuns(selectedReportId)
-      .then((nextRuns) => {
-        if (cancelled) return;
-        if (nextRuns.length === 0) {
-          setReport(null);
-          setStatus('idle');
-        }
-      })
-      .catch((loadError) => {
-        if (cancelled) return;
-        setError(loadError instanceof Error ? loadError.message : 'Failed to load report runs');
-        setStatus('error');
-      });
-
-    return () => {
-      cancelled = true;
-      pollAbortRef.current?.abort();
-    };
-  }, [loadReportRuns, selectedReportId]);
-
+  // Resume polling for an in-flight job when the user lands back on this tab
+  // mid-generation. TQ owns the artifact + runs caches; we just kick the poll.
   useEffect(() => {
     if (!selectedReportRun) return;
-
-    void loadSelectedArtifact(selectedReportRun).catch((loadError) => {
-      const message = loadError instanceof Error ? loadError.message : 'Failed to load report';
-      setError(message);
-      setStatus('error');
-    });
-
-    if ((selectedReportRun.status === 'queued' || selectedReportRun.status === 'running') && selectedReportRun.jobId) {
+    if (
+      (selectedReportRun.status === 'queued' || selectedReportRun.status === 'running') &&
+      selectedReportRun.jobId
+    ) {
       void pollExistingJob(selectedReportRun);
     }
-  }, [loadSelectedArtifact, pollExistingJob, selectedReportRun]);
+  }, [pollExistingJob, selectedReportRun]);
+
+  // Abort any in-flight poll on unmount.
+  useEffect(() => {
+    return () => {
+      pollAbortRef.current?.abort();
+    };
+  }, []);
+
+  // Derive the Status union the render block consumes. Queue / running runs
+  // count as 'generating' even when no mutation is in flight (eg. landing back
+  // on a tab with an in-progress job). Mutation status wins over query state
+  // because the user is actively driving generation.
+  const status: Status = useMemo(() => {
+    if (mutationStatus === 'generating') return 'generating';
+    if (mutationStatus === 'error') return 'error';
+    if (configsQuery.isError) return 'error';
+    if (configsQuery.isLoading) return 'loading';
+    if (configs.length === 0) return 'idle';
+    if (selectedReportId && runsQuery.isLoading && !runsQuery.data) return 'loading';
+    if (runsQuery.isError) return 'error';
+    const run = selectedReportRun;
+    if (!run) return 'idle';
+    if (run.status === 'failed' || run.status === 'cancelled') return 'error';
+    if (run.status === 'queued' || run.status === 'running') return 'generating';
+    if (artifactQuery.isLoading && !artifactQuery.data) return 'loading';
+    if (artifactQuery.isError) return 'error';
+    if (artifactQuery.data) return 'ready';
+    return 'idle';
+  }, [
+    artifactQuery.data,
+    artifactQuery.isError,
+    artifactQuery.isLoading,
+    configs.length,
+    configsQuery.isError,
+    configsQuery.isLoading,
+    mutationStatus,
+    runsQuery.data,
+    runsQuery.isError,
+    runsQuery.isLoading,
+    selectedReportId,
+    selectedReportRun,
+  ]);
+
+  const error: string | null = useMemo(() => {
+    if (mutationError) return mutationError;
+    if (configsQuery.error) {
+      return configsQuery.error instanceof Error
+        ? configsQuery.error.message
+        : 'Failed to load report configs';
+    }
+    if (runsQuery.error) {
+      return runsQuery.error instanceof Error
+        ? runsQuery.error.message
+        : 'Failed to load report runs';
+    }
+    if (artifactQuery.error) {
+      return artifactQuery.error instanceof Error
+        ? artifactQuery.error.message
+        : 'Failed to load report';
+    }
+    if (selectedReportRun?.status === 'failed' || selectedReportRun?.status === 'cancelled') {
+      return 'Report generation failed. Click Generate to retry.';
+    }
+    return null;
+  }, [
+    artifactQuery.error,
+    configsQuery.error,
+    mutationError,
+    runsQuery.error,
+    selectedReportRun,
+  ]);
 
   const handleGenerate = useCallback(async () => {
     if (!overlayConfig) return;
@@ -402,8 +475,8 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
 
     setShowGenerateOverlay(false);
     setSelectedReportId(targetReportId);
-    setStatus('generating');
-    setError(null);
+    setMutationStatus('generating');
+    setMutationError(null);
     setProgressMsg('Submitting report job…');
 
     try {
@@ -421,6 +494,9 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
           onProgress: (progress) => {
             handleJobProgress(progress);
           },
+          onJobCreated: (jobId) => {
+            setGeneratingJobId(jobId);
+          },
         },
       );
 
@@ -435,39 +511,53 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
           ? jobResult.reportRunId
           : null;
 
-      const nextRuns = await loadReportRuns(targetReportId);
-      const nextReportRun = nextRuns.find((entry) => entry.id === generatedReportRunId)
-        ?? nextRuns.find((entry) => entry.status === 'completed');
+      // TQ-driven refresh: invalidate the runs query so the new row appears,
+      // then pin selection to the just-generated run — the artifact query
+      // refetches automatically on the key change.
+      await invalidateReportRuns(queryClient, {
+        appId,
+        scope: 'single_run',
+        sourceEvalRunId: runId,
+      });
+      if (generatedReportRunId) setSelectedReportRunId(generatedReportRunId);
 
-      if (!nextReportRun) {
-        setReport(null);
-        setStatus('idle');
-        return;
-      }
-
-      setSelectedReportRunId(nextReportRun.id);
-      await loadSelectedArtifact(nextReportRun);
+      setMutationStatus('idle');
       notificationService.success('Report generated');
     } catch (generateError) {
       const message = generateError instanceof Error ? generateError.message : 'Report generation failed';
-      setError(message);
-      setStatus('error');
+      setMutationError(message);
+      setMutationStatus('error');
       notificationService.error(message);
     } finally {
       setProgressMsg('');
       setQueuePosition(null);
       setJobPhase(null);
+      setGeneratingJobId(null);
+      setCancellingGeneration(false);
     }
   }, [
     appId,
     handleJobProgress,
-    loadReportRuns,
-    loadSelectedArtifact,
     overlayConfig,
+    queryClient,
     reportModel,
     reportProvider,
     runId,
   ]);
+
+  const handleCancelGeneration = useCallback(async () => {
+    if (!generatingJobId || cancellingGeneration) return;
+    setCancellingGeneration(true);
+    try {
+      await jobsApi.cancel(generatingJobId);
+      pollAbortRef.current?.abort();
+      notificationService.info('Report generation cancelled');
+    } catch (cancelError) {
+      const msg = cancelError instanceof Error ? cancelError.message : 'Failed to cancel generation';
+      notificationService.error(msg);
+      setCancellingGeneration(false);
+    }
+  }, [cancellingGeneration, generatingJobId]);
 
   const handleExportPdf = useCallback(async () => {
     if (!selectedReportRun || exporting) return;
@@ -493,14 +583,14 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
   }, [exporting, selectedReportRun]);
 
   const inProgressCard = (
-    <div className="rounded-lg border border-white/15 bg-white/10 px-6 py-5 backdrop-blur-sm">
+    <div className="w-full">
       <div className="flex items-center gap-3">
         {jobPhase === 'queued' ? (
           <Clock className="h-5 w-5 text-white/75" />
         ) : (
           <Loader2 className="h-5 w-5 animate-spin text-white" />
         )}
-        <div>
+        <div className="flex-1">
           <p className="text-sm font-semibold text-white">
             {jobPhase === 'queued' ? 'Queued for generation' : 'Generating report'}
           </p>
@@ -512,6 +602,19 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
               : progressMsg || 'Composing the report and AI narrative.'}
           </p>
         </div>
+        {generatingJobId && canGenerate ? (
+          <Button
+            variant="danger"
+            size="sm"
+            icon={Ban}
+            isLoading={cancellingGeneration}
+            onClick={() => void handleCancelGeneration()}
+            aria-label={cancellingGeneration ? 'Cancelling generation' : 'Stop generation'}
+            title={cancellingGeneration ? 'Cancelling…' : 'Stop generation'}
+          >
+            {cancellingGeneration ? 'Cancelling…' : 'Stop'}
+          </Button>
+        ) : null}
       </div>
     </div>
   );
@@ -605,7 +708,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
               if (!store.open) store.toggle();
             }}
             className="flex h-8 w-8 items-center justify-center rounded-full hover:scale-110 transition-all duration-150"
-            style={{ background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary-hover) 50%, #2D1B69 100%)' }}
+            style={{ background: 'linear-gradient(135deg, var(--color-brand-primary) 0%, var(--color-brand-primary-hover) 50%, var(--color-brand-primary-deep) 100%)' }}
             title="Build Your Own Report"
             aria-label="Build Your Own Report"
           >
@@ -637,6 +740,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         {status === 'generating' && !report ? (
           <ReportZeroState
             config={selectedConfig}
+            sectionsPreview={sectionsPreview}
             canGenerate={canOpenGenerateOverlay}
             actionLabel={reportActionLabel}
             onGenerate={openGenerateOverlay}
@@ -645,6 +749,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         ) : status === 'error' && !report ? (
           <ReportZeroState
             config={selectedConfig}
+            sectionsPreview={sectionsPreview}
             canGenerate={canOpenGenerateOverlay}
             actionLabel={reportActionLabel}
             onGenerate={openGenerateOverlay}
@@ -655,6 +760,7 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         ) : (
           <ReportZeroState
             config={selectedConfig}
+            sectionsPreview={sectionsPreview}
             canGenerate={canOpenGenerateOverlay}
             actionLabel={reportActionLabel}
             onGenerate={openGenerateOverlay}
@@ -725,7 +831,8 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
 
           <div>
             <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">Provider and model</div>
-            <LLMConfigSection
+            <LegacyLlmConfigCompat
+              callSite="report_generation"
               provider={reportProvider}
               onProviderChange={(value) => {
                 setReportProvider(value);
@@ -744,10 +851,10 @@ export default function ReportTab<TReport extends ReportPayloadLike>({
         onClose={() => setShowManageBlueprints(false)}
         configs={configs}
         onConfigsChanged={async () => {
-          const nextConfigs = await loadConfigs();
-          if (!nextConfigs.some((config) => config.reportId === selectedReportId)) {
-            setSelectedReportId(nextConfigs.find((config) => config.isDefault)?.reportId ?? nextConfigs[0]?.reportId ?? null);
-          }
+          // Bust the configs cache; the useEffect that defaults selectedReportId
+          // re-runs against the new list and re-pins selection if the current
+          // one was archived/renamed.
+          await invalidateReportConfigs(queryClient, appId, 'single_run');
         }}
       />
 

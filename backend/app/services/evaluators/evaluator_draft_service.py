@@ -30,10 +30,16 @@ async def generate_evaluator_draft(
     app_id: str,
     tenant_id: str,
     user_id: str,
+    provider: str | None = None,
+    model: str | None = None,
     rule_catalog: list[dict] | None = None,
     job_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
-    """Generate evaluator draft from a prompt using the user's LLM settings.
+    """Generate evaluator draft from a prompt via the ``evaluator_draft`` call site.
+
+    ``provider`` and ``model`` are optional; when supplied they flow through
+    as resolver overrides. When omitted, the resolver picks the tenant default
+    (or the platform default) for ``evaluator_draft``.
 
     Returns:
         {
@@ -42,40 +48,54 @@ async def generate_evaluator_draft(
             "warnings": list of warning strings,
         }
     """
-    from app.services.evaluators.settings_helper import get_llm_settings_from_db
+    from app.database import async_session
     from app.services.evaluators.llm_base import create_llm_provider
+    from app.services.llm_credentials import (
+        CallSiteCapabilityMismatch,
+        CallSiteCapabilityUnknown,
+        CallSiteNotConfiguredError,
+        ProviderNotConfiguredError,
+        resolve_llm_call,
+    )
 
     output_fields: list[dict] = []
     matched_rule_ids: list[str] = []
     warnings: list[str] = []
 
     try:
-        # Resolve LLM credentials from the user's saved settings
-        db_settings = await get_llm_settings_from_db(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            auth_intent="managed_job",
-        )
+        async with async_session() as db:
+            try:
+                resolved = await resolve_llm_call(
+                    db, tenant_id, "evaluator_draft",
+                    provider_override=provider or None,
+                    model_override=model or None,
+                )
+            except (
+                CallSiteNotConfiguredError,
+                CallSiteCapabilityMismatch,
+                CallSiteCapabilityUnknown,
+                ProviderNotConfiguredError,
+            ) as exc:
+                warnings.append(str(exc))
+                return {"outputFields": [], "matchedRuleIds": [], "warnings": warnings}
 
-        provider_name = db_settings.get("provider", "gemini")
-        model_name = db_settings.get("selected_model", "")
-        api_key = db_settings.get("api_key", "")
-
-        if not model_name:
-            warnings.append("No LLM model configured. Please select a model in Settings.")
-            return {"outputFields": [], "matchedRuleIds": [], "warnings": warnings}
-
-        if not api_key and not db_settings.get("service_account_path"):
-            warnings.append("No LLM credentials configured. Please add API keys in Settings.")
-            return {"outputFields": [], "matchedRuleIds": [], "warnings": warnings}
+        provider_kwargs: dict[str, Any] = {}
+        if resolved.provider == "azure_openai":
+            provider_kwargs["azure_endpoint"] = (
+                resolved.credentials.extra_config.get("base_url") or ""
+            )
+            provider_kwargs["api_version"] = (
+                resolved.api_version
+                or resolved.credentials.extra_config.get("api_version")
+                or "2025-03-01-preview"
+            )
 
         inner = create_llm_provider(
-            provider=provider_name,
-            model_name=model_name,
-            api_key=api_key,
-            service_account_path=db_settings.get("service_account_path", ""),
-            azure_endpoint=db_settings.get("azure_endpoint", ""),
-            api_version=db_settings.get("api_version", ""),
+            provider=resolved.provider,
+            model_name=resolved.model,
+            api_key=resolved.credentials.secret.get("api_key", ""),
+            service_account_path=resolved.credentials.service_account_path or "",
+            **provider_kwargs,
         )
 
         # Wrap with LoggingLLMWrapper so the draft call records an analytics.fact_llm_generation
@@ -103,15 +123,15 @@ async def generate_evaluator_draft(
                 )
                 wrapped = LoggingLLMWrapper(inner, usage_callback=usage_cb)
                 wrapped.set_call_purpose('draft')
-                provider: Any = wrapped
+                llm_client: Any = wrapped
             else:
-                provider = inner
+                llm_client = inner
         else:
-            provider = inner
+            llm_client = inner
 
         user_message = f"Generate output fields for this evaluation prompt:\n\n{prompt}"
 
-        response = await provider.generate_json(
+        response = await llm_client.generate_json(
             prompt=user_message,
             system_prompt=DRAFT_SYSTEM_PROMPT,
         )

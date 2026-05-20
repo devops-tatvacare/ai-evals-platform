@@ -25,15 +25,8 @@ from app.services.orchestration.node_protocol import ActionDispatch, ActionResul
 
 @dataclass
 class ServiceRegistry:
-    """Holds per-channel service clients. Phase 3 populates wati/bolna/lsq;
-    Phase 9 adds clinical_outbox for clinical.* handlers."""
-    wati: Any = None
-    bolna: Any = None
-    lsq: Any = None
-    sms: Any = None
-    email: Any = None
+    """Holds per-channel service clients populated by the executor."""
     webhook: Any = None
-    clinical_outbox: Any = None
 
 
 @dataclass
@@ -70,7 +63,7 @@ class NodeContext:
     def resolve_default_target(self) -> str:
         """Return the single target node id wired to this node's ``default`` output.
 
-        Used by source nodes (``source.cohort_query``, ``source.event_trigger``)
+        Used by source nodes (``source.saved_cohort``, ``source.dataset``, ``source.event_trigger``)
         to find the successor in the graph instead of reading it from node
         config. The validator guarantees source nodes have exactly one
         outgoing ``default`` edge before publish, so any failure here is a
@@ -200,6 +193,24 @@ class NodeContext:
             update(WorkflowRunRecipientAction)
             .where(WorkflowRunRecipientAction.id == uuid.UUID(action_id))
             .values(**values)
+        )
+        await self.db.flush()
+
+    async def stamp_webhook_ttl(
+        self, recipient_id: str, *, deadline: datetime,
+    ) -> None:
+        """Set ignore_webhooks_after on the recipient state at dispatch time.
+
+        Reconciler webhook lookups honor this gate so replies arriving after
+        the deadline are audit-logged but do not flip the recipient.
+        """
+        await self.db.execute(
+            update(WorkflowRunRecipientState)
+            .where(
+                WorkflowRunRecipientState.run_id == self.run_id,
+                WorkflowRunRecipientState.recipient_id == recipient_id,
+            )
+            .values(ignore_webhooks_after=deadline)
         )
         await self.db.flush()
 

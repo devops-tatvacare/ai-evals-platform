@@ -1,9 +1,9 @@
 """Phase 1.3/1.4 — every app manifest populates the chart-contract taxonomy.
 
 Per plan audit-knot #5, identifier coverage checks target columns that actually
-live in `catalog_tables`. `evaluation_run_thread_results` / `evaluation_run_adversarial_results` are
-`data_surfaces`, not catalog tables, so they're deliberately excluded from the
-catalog-identifier assertion below.
+live in `catalog_tables`. `evaluation_runs` / `evaluation_run_thread_results` /
+`evaluation_run_adversarial_results` are `data_surfaces`, not catalog tables, so
+they're deliberately excluded from the catalog-identifier assertion below.
 """
 from __future__ import annotations
 
@@ -53,7 +53,6 @@ def test_kaira_bot_catalog_identifiers_declared() -> None:
         ("fact_evaluation_criterion", "run_id"),
         ("fact_evaluation_criterion", "item_id"),
         ("fact_evaluation_criterion", "criterion_id"),
-        ("evaluation_runs", "id"),
     }
     bad: list[str] = []
     for table_name, col_name in known_catalog_ids:

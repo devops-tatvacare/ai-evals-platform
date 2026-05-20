@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react';
 
 import { ChatSummaryCard } from './ChatSummaryCard';
 
+// Body-only: title / warning live in ChatArtifactCard.
 describe('ChatSummaryCard', () => {
   it('renders a labelled field list', () => {
     render(
@@ -19,10 +20,8 @@ describe('ChatSummaryCard', () => {
             },
           ],
         }}
-        title="Run details"
       />,
     );
-    expect(screen.getByText('Run details')).toBeInTheDocument();
     expect(screen.getByText('Run ID')).toBeInTheDocument();
     expect(screen.getByText('abc123')).toBeInTheDocument();
     expect(screen.getByText('Total')).toBeInTheDocument();

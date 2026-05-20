@@ -56,6 +56,20 @@ def _validate_startup_config() -> None:
         assert_key_valid()
     except ConnectionCryptoError as exc:
         raise RuntimeError(f"ORCHESTRATION_CONNECTION_KEY is invalid: {exc}") from exc
+    if not settings.LLM_CREDENTIAL_KEY:
+        raise RuntimeError(
+            "LLM_CREDENTIAL_KEY environment variable is required. "
+            "Generate one with `python -c \"from cryptography.fernet import Fernet; "
+            "print(Fernet.generate_key().decode())\"` and add it to .env.backend."
+        )
+    from app.services.llm_credentials.crypto import (
+        LlmCredentialCryptoError,
+        assert_key_valid as assert_llm_key_valid,
+    )
+    try:
+        assert_llm_key_valid()
+    except LlmCredentialCryptoError as exc:
+        raise RuntimeError(f"LLM_CREDENTIAL_KEY is invalid: {exc}") from exc
     if settings.JOB_HEARTBEAT_INTERVAL_SECONDS >= settings.JOB_LEASE_SECONDS:
         raise RuntimeError("JOB_HEARTBEAT_INTERVAL_SECONDS must be less than JOB_LEASE_SECONDS.")
     if settings.JOB_MAX_ATTEMPTS < 1:
@@ -105,9 +119,13 @@ async def lifespan(app: FastAPI):
     # (Aliased import: the lifespan param is named ``app``, shadowing the
     # top-level ``app`` package.)
     import app.services.job_worker as _register_job_handlers  # noqa: F401
-    # Register the orchestration shared node handlers (10 nodes — source/filter/logic/core/sink).
+    # Register the orchestration shared node handlers (12 nodes — source/filter/logic/core/messaging/voice/sink).
     # The package __init__ imports each module so @register_node fires.
     import app.services.orchestration.nodes as _register_orch_nodes  # noqa: F401
+    # Register capability adapters (vendor implementations of MessagingAdapter / VoiceAdapter).
+    import app.services.orchestration.adapters.wati as _register_wati_adapter  # noqa: F401
+    import app.services.orchestration.adapters.aisensy as _register_aisensy_adapter  # noqa: F401
+    import app.services.orchestration.adapters.bolna as _register_bolna_adapter  # noqa: F401
 
     # Schema is owned by Alembic; migrations were applied by entrypoint.sh's
     # `alembic upgrade head` before this process started. Log the alembic head
@@ -150,6 +168,17 @@ async def lifespan(app: FastAPI):
         await seed_all_defaults(session)
     await seed_bootstrap_admin()
 
+    # Catalog (analytics.ref_llm_models_catalog) source of truth is models.dev,
+    # NOT a code-committed seed. If the catalog is empty (fresh DB), fetch
+    # synchronously and apply the refresh. Fails boot loudly if upstream is
+    # unreachable and the catalog stays empty — better than serving traffic
+    # with no models registered.
+    from app.services.cost_tracking.ensure_catalog_loaded import (
+        ensure_catalog_loaded,
+    )
+    async with async_session() as _catalog_db:
+        await ensure_catalog_loaded(_catalog_db)
+
     # Overlay DB-sourced fact_lead_signal.attribute_schemas onto the YAML
     # manifests (signal derivation framework, invariant 21 / §7.4). Runs
     # after seeding so the system-tenant signal definitions exist.
@@ -166,6 +195,13 @@ async def lifespan(app: FastAPI):
     from app.services.chat_engine.capability_pack import validate_all_app_pack_ids
     async with async_session() as _pack_validator_db:
         await validate_all_app_pack_ids(_pack_validator_db)
+
+    # Reporting genericization Phase 1 — boot-time gate on App.config.analytics.
+    # Moves three classes of silent drop (unknown profile, export-not-subset,
+    # narrative-id-not-routable) from "first generate-report click" to boot.
+    from app.services.reports.config_validator import validate_reporting_config
+    async with async_session() as _reporting_validator_db:
+        await validate_reporting_config(_reporting_validator_db)
 
     # Clean up any expired refresh tokens from previous run
     await _cleanup_expired_refresh_tokens()
@@ -307,7 +343,6 @@ from app.routes.adversarial_test_cases import router as adversarial_test_cases_r
 from app.routes.admin import router as admin_router
 from app.routes.reports import router as reports_router
 from app.routes.report_builder import router as report_builder_router, v2_router as report_builder_v2_router
-from app.routes.chat_engine import router as chat_engine_router
 from app.routes.auth import router as auth_router
 from app.routes.inside_sales import router as inside_sales_router
 from app.routes.apps import router as apps_router
@@ -320,13 +355,24 @@ from app.routes.analytics_crm_schema import router as analytics_crm_schema_route
 from app.routes.cost import router as cost_router, admin_router as cost_admin_router
 from app.routes.analytics_admin import router as analytics_admin_router
 from app.routes.scheduled_jobs import router as scheduled_jobs_router
+from app.routes.notification_subscriptions import router as notification_subscriptions_router
+from app.routes.admin_notifications import router as admin_notifications_router
 from app.routes.orchestration_webhooks import router as orchestration_webhooks_router
 from app.routes.orchestration import router as orchestration_router
+from app.routes.orchestration_cohorts import router as orchestration_cohorts_router
 from app.routes.orchestration_connections import router as orchestration_connections_router
 from app.routes.orchestration_datasets import router as orchestration_datasets_router
 from app.routes.orchestration_sse import router as orchestration_sse_router
-from app.routes.sherlock_tool_calls import router as sherlock_tool_calls_router
+from app.routes.orchestration_admin import router as orchestration_admin_router
+from app.routes.sherlock_parts import router as sherlock_parts_router
 from app.routes.sherlock_verified_queries import router as sherlock_verified_queries_router
+from app.routes.admin_ai_settings import router as admin_ai_settings_router
+from app.routes.llm_call_site_defaults import (
+    admin_router as llm_defaults_admin_router,
+    platform_router as llm_defaults_platform_router,
+)
+from app.routes.llm_models import router as llm_models_router
+from app.routes.llm_assist import router as llm_assist_router
 app.include_router(auth_router)
 app.include_router(listings_router)
 app.include_router(files_router)
@@ -345,7 +391,6 @@ app.include_router(admin_router)
 app.include_router(reports_router)
 app.include_router(report_builder_router)
 app.include_router(report_builder_v2_router)
-app.include_router(chat_engine_router)
 app.include_router(inside_sales_router)
 app.include_router(apps_router)
 app.include_router(roles_router)
@@ -358,10 +403,19 @@ app.include_router(cost_router)
 app.include_router(cost_admin_router)
 app.include_router(analytics_admin_router)
 app.include_router(scheduled_jobs_router)
+app.include_router(notification_subscriptions_router)
+app.include_router(admin_notifications_router)
 app.include_router(orchestration_webhooks_router)
 app.include_router(orchestration_router)
+app.include_router(orchestration_cohorts_router)
 app.include_router(orchestration_connections_router)
 app.include_router(orchestration_datasets_router)
 app.include_router(orchestration_sse_router)
-app.include_router(sherlock_tool_calls_router)
+app.include_router(orchestration_admin_router)
+app.include_router(sherlock_parts_router)
 app.include_router(sherlock_verified_queries_router)
+app.include_router(admin_ai_settings_router)
+app.include_router(llm_defaults_admin_router)
+app.include_router(llm_defaults_platform_router)
+app.include_router(llm_models_router)
+app.include_router(llm_assist_router)

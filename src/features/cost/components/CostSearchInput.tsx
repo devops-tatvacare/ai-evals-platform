@@ -32,18 +32,27 @@ export function CostSearchInput({
   autoFocus,
 }: CostSearchInputProps) {
   const [draft, setDraft] = useState(value);
+  // Distinguish a genuine external value change (e.g. a filter reset) from the
+  // echo of our own commit, so the echo never clobbers in-flight keystrokes.
+  const [lastValue, setLastValue] = useState(value);
+  const [committed, setCommitted] = useState(value);
 
-  // Keep draft in sync when the committed value changes externally
-  // (e.g. a filter reset clears the store value).
-  useEffect(() => {
-    setDraft(value);
-  }, [value]);
+  // Adjust during render (not in an effect) when the prop changes externally.
+  // Re-syncing the committed echo would drop characters when the debounce is
+  // short. See react.dev "you might not need an effect".
+  if (value !== lastValue) {
+    setLastValue(value);
+    if (value !== committed) {
+      setDraft(value);
+    }
+  }
 
   // Commit after the debounce window.
   useEffect(() => {
     const trimmed = draft.trim();
     if (trimmed === value) return;
     const handle = setTimeout(() => {
+      setCommitted(trimmed);
       onCommit(trimmed);
     }, debounceMs);
     return () => clearTimeout(handle);

@@ -1,20 +1,28 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { Eye, Inbox, Trash2, X } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { DataTable, type ColumnDef } from '@/components/ui/DataTable';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { PageSurface } from '@/components/ui/PageSurface';
 import { RightSlideOverShell } from '@/components/ui/RightSlideOverShell';
+import {
+  RowActionsMenu,
+  type RowAction,
+} from '@/components/ui/RowActionsMenu';
 import { usePageMetadata } from '@/config/pageMetadata';
 import { useOrchestrationRoutes } from '@/features/orchestration/hooks/useOrchestrationRoutes';
-import { ApiError } from '@/services/api/client';
 import {
-  orchestrationDatasetsApi,
-  type DatasetDetailResponse,
-  type DatasetVersionResponse,
-} from '@/services/api/orchestrationDatasets';
+  datasetQueryKeys,
+  useDataset,
+  useDatasetVersion,
+  useDeleteDatasetVersion,
+} from '@/features/orchestration/queries/datasets';
+import { ApiError } from '@/services/api/client';
+import { type DatasetVersionResponse } from '@/services/api/orchestrationDatasets';
 import { notificationService } from '@/services/notifications';
 
 import { DatasetUploadForm } from './DatasetUploadForm';
@@ -48,95 +56,45 @@ export function DatasetDetail() {
   const { icon } = usePageMetadata('datasetDetail');
   const orchestrationRoutes = useOrchestrationRoutes();
 
-  const [dataset, setDataset] = useState<DatasetDetailResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const qc = useQueryClient();
+  const { data: dataset, isLoading: loading } = useDataset(datasetId);
+  const versions = useMemo(() => dataset?.versions ?? [], [dataset]);
+  const hasVersions = versions.length > 0;
+  const latestVersionId = dataset?.latestVersion?.id ?? null;
+
   const [uploading, setUploading] = useState(false);
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
-  const [versionDetail, setVersionDetail] = useState<DatasetVersionResponse | null>(null);
-  const [versionDetailLoading, setVersionDetailLoading] = useState(false);
+  const [userSelectedVersionId, setUserSelectedVersionId] =
+    useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DatasetVersionResponse | null>(null);
-  const [deletingVersion, setDeletingVersion] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    if (!datasetId) return;
-    setLoading(true);
-    try {
-      const result = await orchestrationDatasetsApi.get(datasetId);
-      setDataset(result);
-      // Default the sample-rows panel to the latest version. Subsequent
-      // navigation through the table replaces it.
-      const latest = result.latestVersion;
-      if (latest) {
-        setSelectedVersionId((prev) => prev ?? latest.id);
-      } else {
-        setSelectedVersionId(null);
-        setVersionDetail(null);
-      }
-    } catch (err) {
-      const msg =
-        err instanceof ApiError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : 'Failed to load dataset';
-      notificationService.error(msg);
-    } finally {
-      setLoading(false);
+  const selectedVersionId = useMemo(() => {
+    if (!hasVersions) return null;
+    if (
+      userSelectedVersionId &&
+      versions.some((v) => v.id === userSelectedVersionId)
+    ) {
+      return userSelectedVersionId;
     }
-  }, [datasetId]);
+    return latestVersionId;
+  }, [hasVersions, userSelectedVersionId, versions, latestVersionId]);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const { data: versionDetail, isLoading: versionDetailLoading } =
+    useDatasetVersion(datasetId, selectedVersionId, 20);
 
-  // Fetch sample rows whenever the selected version changes. Sample rows are
-  // not part of the parent ``get`` response payload — they are pulled
-  // on-demand so the detail page stays cheap to render for large datasets.
-  useEffect(() => {
-    if (!datasetId || !selectedVersionId) {
-      setVersionDetail(null);
-      return;
-    }
-    let alive = true;
-    setVersionDetailLoading(true);
-    orchestrationDatasetsApi
-      .getVersion(datasetId, selectedVersionId, 20)
-      .then((res) => {
-        if (alive) setVersionDetail(res);
-      })
-      .catch((err: unknown) => {
-        if (!alive) return;
-        const msg =
-          err instanceof ApiError
-            ? err.message
-            : err instanceof Error
-              ? err.message
-              : 'Failed to load version';
-        notificationService.error(msg);
-      })
-      .finally(() => {
-        if (alive) setVersionDetailLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [datasetId, selectedVersionId]);
+  const deleteVersion = useDeleteDatasetVersion(datasetId ?? '');
 
   async function handleDeleteVersion() {
     if (!datasetId || !deleteTarget) return;
-    setDeletingVersion(true);
     try {
-      await orchestrationDatasetsApi.removeVersion(datasetId, deleteTarget.id);
+      await deleteVersion.mutateAsync(deleteTarget.id);
       notificationService.success(
         `Deleted version v${deleteTarget.versionNumber}`,
       );
-      // If the deleted version was being inspected, fall back to whatever the
-      // refresh decides is the latest.
       if (selectedVersionId === deleteTarget.id) {
-        setSelectedVersionId(null);
+        setUserSelectedVersionId(null);
       }
       setDeleteTarget(null);
-      await refresh();
     } catch (err) {
       const msg =
         err instanceof ApiError
@@ -145,8 +103,6 @@ export function DatasetDetail() {
             ? err.message
             : 'Failed to delete version';
       notificationService.error(msg);
-    } finally {
-      setDeletingVersion(false);
     }
   }
 
@@ -154,6 +110,7 @@ export function DatasetDetail() {
     {
       key: 'versionNumber',
       header: 'Version',
+      width: 'w-[90px]',
       render: (v) => (
         <span className="font-mono text-[var(--text-primary)]">
           v{v.versionNumber}
@@ -163,11 +120,17 @@ export function DatasetDetail() {
     {
       key: 'rowCount',
       header: 'Rows',
-      render: (v) => v.rowCount.toLocaleString(),
+      width: 'w-[100px]',
+      render: (v) => (
+        <span className="tabular-nums text-[var(--text-primary)]">
+          {v.rowCount.toLocaleString()}
+        </span>
+      ),
     },
     {
       key: 'idStrategy',
       header: 'ID strategy',
+      width: 'min-w-[180px]',
       render: (v) => (
         <span className="text-[var(--text-secondary)]">
           {describeStrategy(v)}
@@ -177,8 +140,9 @@ export function DatasetDetail() {
     {
       key: 'sourceFilename',
       header: 'Source',
+      width: 'min-w-[200px]',
       render: (v) => (
-        <span className="font-mono text-[11px] text-[var(--text-secondary)]">
+        <span className="truncate font-mono text-[length:var(--text-table-header)] text-[var(--text-secondary)]">
           {v.sourceFilename ?? '—'}
         </span>
       ),
@@ -186,6 +150,8 @@ export function DatasetDetail() {
     {
       key: 'importedAt',
       header: 'Imported',
+      width: 'min-w-[160px]',
+      textBehavior: 'nowrap',
       render: (v) => (
         <span className="text-[var(--text-secondary)]">
           {fmtDate(v.importedAt)}
@@ -193,34 +159,38 @@ export function DatasetDetail() {
       ),
     },
     {
-      key: '_actions',
-      header: '',
-      width: '180px',
-      render: (v) => (
-        <div className="flex items-center justify-end gap-1">
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedVersionId(v.id);
-            }}
-            disabled={selectedVersionId === v.id}
-          >
-            {selectedVersionId === v.id ? 'Selected' : 'Inspect'}
-          </Button>
-          <Button
-            size="sm"
-            variant="danger-outline"
-            onClick={(e) => {
-              e.stopPropagation();
-              setDeleteTarget(v);
-            }}
-          >
-            Delete
-          </Button>
-        </div>
-      ),
+      key: 'actions',
+      header: 'Actions',
+      width: 'w-[80px]',
+      headerClassName: 'text-right',
+      cellClassName: 'text-right',
+      render: (v) => {
+        const actions: RowAction[] = [
+          {
+            id: 'inspect',
+            icon: Eye,
+            label: selectedVersionId === v.id ? 'Selected' : 'Inspect',
+            disabled: selectedVersionId === v.id,
+            onClick: () => setUserSelectedVersionId(v.id),
+          },
+          {
+            id: 'delete',
+            icon: Trash2,
+            label: 'Delete',
+            danger: true,
+            onClick: () => setDeleteTarget(v),
+          },
+        ];
+        return (
+          <div className="flex items-center justify-end">
+            <RowActionsMenu
+              actions={actions}
+              open={openMenuId === v.id}
+              onOpenChange={(open) => setOpenMenuId(open ? v.id : null)}
+            />
+          </div>
+        );
+      },
     },
   ];
 
@@ -236,7 +206,7 @@ export function DatasetDetail() {
         key: '__recipientId',
         header: 'Recipient ID',
         render: (row) => (
-          <span className="font-mono text-[11px] text-[var(--text-secondary)]">
+          <span className="font-mono text-[length:var(--text-table-header)] text-[var(--text-secondary)]">
             {row.recipientId}
           </span>
         ),
@@ -264,7 +234,7 @@ export function DatasetDetail() {
         icon={icon}
         title={dataset?.name ?? (loading ? 'Loading…' : 'Dataset')}
         subtitle={dataset?.description ?? undefined}
-        back={{ to: orchestrationRoutes.datasets, label: 'Datasets' }}
+        back={{ to: orchestrationRoutes.datasetsTab, label: 'Datasets' }}
         actions={
           <Button onClick={() => setUploading(true)} disabled={!dataset}>
             Upload new version
@@ -272,42 +242,51 @@ export function DatasetDetail() {
         }
       >
         <div className="flex min-h-0 flex-1 flex-col gap-6 p-6">
-          <section className="flex min-h-0 flex-col gap-2">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-              Versions
-            </h3>
-            <DataTable<DatasetVersionResponse>
-              data={dataset?.versions ?? []}
-              columns={versionColumns}
-              keyExtractor={(v) => v.id}
-              loading={loading}
-              emptyTitle="No versions yet"
-              emptyDescription="Upload a CSV to create the first version of this dataset."
+          {!loading && dataset && !hasVersions ? (
+            <EmptyState
+              fill
+              icon={Inbox}
+              title="No versions yet"
+              description="Upload a CSV to create the first version of this dataset."
+              action={{
+                label: 'Upload CSV',
+                onClick: () => setUploading(true),
+              }}
             />
-          </section>
+          ) : (
+            <>
+              <section className="flex min-h-0 flex-col gap-2">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                  Versions
+                </h3>
+                <DataTable<DatasetVersionResponse>
+                  data={versions}
+                  columns={versionColumns}
+                  keyExtractor={(v) => v.id}
+                  loading={loading}
+                  emptyTitle="No versions yet"
+                  emptyDescription="Upload a CSV to create the first version of this dataset."
+                />
+              </section>
 
-          <section className="flex min-h-0 flex-col gap-2">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-              Sample rows
-              {versionDetail
-                ? ` · v${versionDetail.versionNumber}`
-                : ''}
-            </h3>
-            {selectedVersionId ? (
-              <DataTable<{ recipientId: string; payload: Record<string, unknown> }>
-                data={sampleRows}
-                columns={sampleColumns}
-                keyExtractor={(r) => r.recipientId}
-                loading={versionDetailLoading}
-                emptyTitle="No sample rows"
-                emptyDescription="The selected version has no rows to preview."
-              />
-            ) : (
-              <p className="text-xs text-[var(--text-secondary)]">
-                Select a version to preview rows.
-              </p>
-            )}
-          </section>
+              {hasVersions && selectedVersionId ? (
+                <section className="flex min-h-0 flex-col gap-2">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                    Sample rows
+                    {versionDetail ? ` · v${versionDetail.versionNumber}` : ''}
+                  </h3>
+                  <DataTable<{ recipientId: string; payload: Record<string, unknown> }>
+                    data={sampleRows}
+                    columns={sampleColumns}
+                    keyExtractor={(r) => r.recipientId}
+                    loading={versionDetailLoading}
+                    emptyTitle="No sample rows"
+                    emptyDescription="The selected version has no rows to preview."
+                  />
+                </section>
+              ) : null}
+            </>
+          )}
         </div>
       </PageSurface>
 
@@ -332,8 +311,15 @@ export function DatasetDetail() {
               onClose={() => setUploading(false)}
               onUploaded={(version) => {
                 setUploading(false);
-                setSelectedVersionId(version.id);
-                void refresh();
+                setUserSelectedVersionId(version.id);
+                if (datasetId) {
+                  qc.invalidateQueries({
+                    queryKey: datasetQueryKeys.detail(datasetId),
+                  });
+                  qc.invalidateQueries({
+                    queryKey: ['orchestration', 'datasets', 'list'],
+                  });
+                }
               }}
             />
           ) : null}
@@ -342,7 +328,9 @@ export function DatasetDetail() {
 
       <ConfirmDialog
         isOpen={Boolean(deleteTarget)}
-        onClose={() => (deletingVersion ? null : setDeleteTarget(null))}
+        onClose={() =>
+          deleteVersion.isPending ? null : setDeleteTarget(null)
+        }
         onConfirm={handleDeleteVersion}
         title="Delete version"
         description={
@@ -350,9 +338,9 @@ export function DatasetDetail() {
             ? `Delete v${deleteTarget.versionNumber}? Workflows bound to this exact version will fail until rebound.`
             : ''
         }
-        confirmLabel={deletingVersion ? 'Deleting…' : 'Delete'}
+        confirmLabel={deleteVersion.isPending ? 'Deleting…' : 'Delete'}
         variant="danger"
-        isLoading={deletingVersion}
+        isLoading={deleteVersion.isPending}
       />
     </>
   );

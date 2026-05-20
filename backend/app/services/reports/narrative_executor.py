@@ -10,13 +10,7 @@ from app.services.reports.contracts.cross_run_narrative import (
     PlatformCrossRunNarrative,
 )
 from app.services.reports.contracts.report_sections import PlatformReportSection
-from app.services.reports.contracts.run_narrative import (
-    PlatformRunNarrative,
-    RunNarrativeExemplar,
-    RunNarrativeIssue,
-    RunNarrativePromptGap,
-    RunNarrativeRecommendation,
-)
+from app.services.reports.contracts.run_narrative import PlatformRunNarrative
 from app.services.reports.narrative_prompt_builders import (
     build_cross_run_narrative_prompt,
     build_run_narrative_prompt,
@@ -34,25 +28,19 @@ def _select_sections(
 
 
 def _single_run_narrative_payload(result: dict[str, Any]) -> PlatformRunNarrative:
-    return PlatformRunNarrative(
-        executive_summary=result.get('executive_summary', ''),
-        issues=[
-            RunNarrativeIssue(**item)
-            for item in result.get('top_issues', [])
-        ],
-        recommendations=[
-            RunNarrativeRecommendation(**item)
-            for item in result.get('recommendations', [])
-        ],
-        exemplars=[
-            RunNarrativeExemplar(**item)
-            for item in result.get('exemplars', [])
-        ],
-        prompt_gaps=[
-            RunNarrativePromptGap(**item)
-            for item in result.get('prompt_gaps', [])
-        ],
-    )
+    # CamelModel.model_json_schema() emits camelCase property names (because
+    # alias_generator=to_camel is set on the base), and that schema is what
+    # llm.generate_json passes to the model. The LLM therefore returns keys
+    # like `executiveSummary` / `promptGaps`. Earlier the mapper looked up
+    # snake_case keys (`executive_summary`, `top_issues`, `prompt_gaps`) and
+    # silently fell back to defaults, producing artifacts with an empty
+    # executiveSummary and empty promptGaps arrays. `model_validate` uses
+    # Pydantic's alias-aware loader (CamelModel sets populate_by_name=True
+    # so both camelCase aliases and snake_case field names are accepted),
+    # which is the right boundary for "untrusted JSON from an LLM" — no
+    # per-field copy needed, and it works whether the LLM returns
+    # camelCase, snake_case, or a mix.
+    return PlatformRunNarrative.model_validate(result)
 
 
 def _cross_run_narrative_payload(result: dict[str, Any]) -> PlatformCrossRunNarrative:

@@ -1,537 +1,358 @@
-# AI Evals Platform - Project 101
+# PROJECT 101 — AI Evals Platform
 
-This is the primary product and architecture reference for the repository. Read it end to end if you are new to the codebase.
+Primary product and architecture reference. Read end-to-end if new to the codebase.
 
 ---
 
-## WHAT THE PRODUCT IS
+## What it is
 
-AI Evals Platform is a multi-tenant system for evaluating AI behavior in production workflows. It stores prompts, schemas, evaluators, runs, logs, reports, reviews, and analytics so teams can reproduce decisions instead of relying on one-off manual reviews.
+A multi-tenant SaaS for evaluating AI behavior in production workflows. Stores prompts, schemas, evaluators, runs, logs, reports, reviews, analytics, orchestration workflows, and cost telemetry so teams reproduce decisions instead of relying on ad-hoc reviews.
 
-The platform currently serves three app surfaces:
+Three workspaces today:
 
-| Workspace | App ID | What it evaluates | Primary inputs |
+| App | App ID | Evaluates | Primary inputs |
 | --- | --- | --- | --- |
-| Voice Rx | `voice-rx` | Medical transcription and structured extraction quality | Audio files, transcripts, upload and API-based comparison flows |
-| Kaira Bot | `kaira-bot` | Conversational AI quality | Chat sessions, CSV thread exports, adversarial cases |
-| Inside Sales | `inside-sales` | AI-assisted sales call quality | LeadSquared call data and transcripts |
+| Voice Rx | `voice-rx` | Medical transcription + structured extraction | Audio, transcripts |
+| Kaira Bot | `kaira-bot` | Conversational AI | Chat sessions, CSV thread exports, adversarial cases |
+| Inside Sales | `inside-sales` | AI-assisted call quality | LeadSquared calls + transcripts |
 
-Across those workspaces, the platform provides:
-
-- versioned prompts, schemas, and eval templates
-- reusable evaluators (including per-app rules and saved adversarial test cases)
-- background job execution with polling, cancellation, retries, and recovery
-- a single `EvalRun` record for every evaluation outcome
-- a review universe for human sign-off on runs
-- a reporting pipeline with config/run/artifact persistence
-- an analytics fact layer that powers dashboards and the Sherlock agent
-- a cost tracking plane that records every LLM generation, resolves pricing, and rolls up spend per tenant, app, user, provider, and owner
-- tenant-aware RBAC, invite links, and app-scoped access
+Cross-workspace capabilities: versioned prompts/schemas/templates, reusable evaluators, async job execution with cancellation + recovery, `EvaluationRun` as the polymorphic result row, human review universe, reporting v1 + v2 pipelines, analytics fact layer, Sherlock analytics agent, cost-tracking observability plane, orchestration workflow engine, tenant-aware RBAC + invite links.
 
 ---
 
-## WHY IT EXISTS
+## Product principles
 
-### The problem
-
-Teams using AI in production need more than a score. They need a system that can answer:
-
-- What was evaluated?
-- Which prompt, schema, and model configuration produced the result?
-- Where exactly did the output fail?
-- Can the same run be reproduced later?
-- Can results be compared across time, evaluators, or workspaces?
-- Can a human reviewer agree or disagree on a record-by-record basis?
-
-That need is especially strong in the workflows represented here:
-
-- clinical transcription, where segment-level mistakes matter
-- conversational AI, where safety, compliance, and intent handling matter
-- sales workflows, where teams need structured scorecards and trend reporting
-
-### Product principles
-
-1. Evidence beats intuition. Store the run, the configuration, and the logs.
-2. Long work runs asynchronously. The UI should not own custom polling logic.
-3. The frontend is a thin client. Business logic, persistence, and LLM calls live on the backend.
-4. Multi-tenant rules are non-negotiable. Every data row belongs to a tenant.
-5. Extensibility matters. New evaluators, reports, and analytics should fit the same primitives.
-6. Analytics is downstream of evaluation. Fact tables are derived, not authored by hand.
+1. Evidence beats intuition. Persist the run, the config, the logs.
+2. Long work is async. The UI never owns custom polling.
+3. Frontend is a thin client. Business logic, persistence, LLM calls live on the backend.
+4. Multi-tenant rules are non-negotiable. Every owned row is tenant-scoped; most are tenant + app scoped; user-owned rows are tenant + app + user.
+5. Reuse beats invention. Extend existing abstractions; do not re-roll them.
+6. Analytics is downstream. Fact tables are derived, never hand-authored.
 
 ---
 
-## HOW THE PLATFORM WORKS
+## How it works
 
-### Shared workflow
-
-Most flows in the platform follow the same shape:
+### Shared flow
 
 ```text
-1. Bring data in
-   - upload a file
-   - import CSV
-   - pull from an external system (LeadSquared, Kaira)
-
-2. Configure evaluation inputs
-   - prompts
-   - schemas
-   - evaluator selection
-   - LLM provider and model settings
-
-3. Submit a background job
-   - job row is created
-   - frontend polls through submitAndPollJob()
-   - worker claims and executes the job
-
-4. Persist and review results
-   - EvalRun is stored
-   - dependent rows are written as needed
-   - populate-analytics jobs fan out into fact tables
-   - reviews, reports, and analytics consume the stored results
+Bring data in (upload, CSV, external sync)
+  -> Configure inputs (prompts, schemas, evaluators, LLM call site)
+  -> Submit background job
+  -> Worker claims + executes
+  -> EvaluationRun + detail rows persist
+  -> populate-analytics fans into fact tables
+  -> reviews, reports, Sherlock, dashboards consume
 ```
 
-### Workspace: Voice Rx
-
-Voice Rx evaluates medical transcription quality. It has two broad paths:
-
-- upload-based transcription and critique
-- API-oriented judge flows for structured extraction comparison
-
-The core Voice Rx full evaluation pipeline is fixed:
+### Voice Rx pipeline (fixed)
 
 ```text
-1. Transcription call
-   - receives audio
-   - uses Gemini with inline media via Part.from_bytes()
-   - returns time-aligned transcript data
-
-2. Critique call
-   - text only
-   - compares generated transcript against reference data
-   - returns structured discrepancies via generate_json()
-
-3. Server-side statistics
-   - counts and aggregates are computed from stored records
-   - the model is not trusted to self-report totals
+1. Transcription call with audio (Gemini Part.from_bytes for Vertex media)
+2. Critique call with text only (compares transcript to reference)
+3. Server-side statistics (model is never trusted to self-report totals)
 ```
 
-That order is a hard invariant. Audio is never sent on the critique call.
+Audio never travels on the critique call. That order is a hard invariant.
 
-### Workspace: Kaira Bot
+### Kaira Bot
 
-Kaira Bot covers three major modes:
-
-| Mode | Job type | Stored outcome |
+| Mode | Job type | Result |
 | --- | --- | --- |
-| Custom evaluator run | `evaluate-custom` / `evaluate-custom-batch` | `EvalRun` with `eval_type=custom` |
-| Batch thread evaluation | `evaluate-batch` | aggregate `EvalRun` plus `thread_evaluations` rows |
-| Adversarial evaluation | `evaluate-adversarial` | aggregate `EvalRun` plus `adversarial_evaluations` rows |
+| Custom evaluator | `evaluate-custom` / `evaluate-custom-batch` | `EvaluationRun` (`eval_type=custom`) |
+| Batch thread | `evaluate-batch` | aggregate `EvaluationRun` + `evaluation_run_thread_results` |
+| Adversarial | `evaluate-adversarial` | aggregate `EvaluationRun` + `evaluation_run_adversarial_results` |
 
-Kaira-specific supporting capabilities:
+Supporting capabilities: per-app rules catalog, saved adversarial test cases, persona/trait axes (persona = who the user is; trait = how they ask).
 
-- a published per-app rules catalog via `/api/rules`
-- saved adversarial test cases via `/api/adversarial-test-cases`
-- a persona/trait axis for adversarial probes: persona describes who the user is (e.g., Moriarty), traits describe how they ask
+### Inside Sales
 
-### Workspace: Inside Sales
+LeadSquared-backed call quality. `sync-external-source` jobs pull data into source tables (`crm_call_record`, `crm_lead_record`, `log_crm_source_sync`), then `evaluate-inside-sales` runs scoring. Serving endpoints (`/api/inside-sales/calls`, `/leads`, `/agents`) read from the source tables so evaluation does not depend on live LSQ availability.
 
-Inside Sales evaluates call quality using LeadSquared-backed data. The flow is:
+### Orchestration
 
-```text
-1. Pull or load call records
-2. Submit evaluate-inside-sales jobs
-3. Run the scoring pipeline on the backend
-4. Persist run-level and call-level outputs
-5. Review dashboards, scorecards, and reports
-```
+A workflow engine that drives outbound campaigns (CRM / WhatsApp / Voice / SMS / clinical) and resumes-on-webhook flows.
 
-Inside Sales now has first-class source tables (`source_call_records`, `source_lead_records`, `source_sync_runs` — generic CRM-backed storage, tenant/app partitioned) so collection-serving endpoints do not depend on live LeadSquared availability during evaluation.
+- Node registry uses capability-named nodes (`messaging.send_whatsapp_template`, `voice.place_call`, `crm.lsq_*`, `clinical.*`, plus shared source/filter/logic/sink).
+- Vendor selected by `ProviderConnection` (tenant + app owned, Fernet-encrypted).
+- Per-call → connection → provider-default credential fallback (e.g. `from_phone`).
+- Webhooks resolve by per-connection token. Resume polling claims waiting rows.
+- Cohort datasets (`cohort_datasets`, `cohort_dataset_versions`, `cohort_dataset_rows`) are first-class campaign sources.
+- Run state: workflow runs + per-node steps + per-recipient state + per-recipient actions + per-recipient overrides.
 
-#### Inside Sales collection-serving contract
+### Sherlock
 
-- **Serving endpoints:** `GET /api/inside-sales/calls`, `GET /api/inside-sales/leads`, `GET /api/inside-sales/agents`
-- **Detail / refresh endpoints:** `GET /api/inside-sales/leads/{prospect_id}`, `GET /api/inside-sales/leads/{prospect_id}/detail`
-- **Canonical selection surface:** `resolve_call_selection()` in the backend evaluation pipeline; `GET /api/inside-sales/calls?scope=all` is a temporary migration bridge
-- **Sync model:** `sync-external-source` jobs write into source tables and produce `source_sync_runs` entries
+OpenAI Agents SDK agent — one supervisor + named specialists registered via `as_tool` (data, query_synthesis, authoring). Read-only over manifest-declared tables; never mutates eval data.
+
+Runtime persistence:
+
+- `sherlock_agent_sessions` — one per tenant + user + app
+- `sherlock_conversation_turns` — one per turn
+- `sherlock_turn_events` — per supervisor + specialist event
+- `log_sherlock_tool_call` — structured tool call log under analytics schema
+
+Chart output uses a discriminated-union payload (`chart | kpi | summary | table | empty`) built backend-side by `result_set_typer → chartability_gate → chart_type_picker → vega_lite_emitter`. The frontend never infers chart type.
+
+Manifests at `backend/app/services/chat_engine/manifests/<app-id>.yaml` drive catalog, vocabulary, surfaces, and `COMMENT ON COLUMN`. Semantic models at `semantic_models/<app-id>.yaml`. The boot validator enforces both.
 
 ### Reviews
 
-The review universe (`eval_reviews`, `eval_review_items`, `/api/reviews`) lets human reviewers sign off on individual eval records. Reviews are first-class entities with their own routes and store. The frontend surface lives under `src/features/reviews/` and is orchestrated by `reviewModeStore`.
+`evaluation_reviews` + `evaluation_review_items` + `/api/reviews`. Human reviewers sign off on individual records. FE under `src/features/reviews/`, orchestrated by `reviewModeStore`.
 
-### Reports and analytics
+### Reports
 
-Reporting sits on top of completed runs. The platform supports:
+| Surface | Routes | Tables |
+| --- | --- | --- |
+| Legacy | `/api/reports` | per-run report rows |
+| v2 builder | `/api/report-builder` and `/api/report-builder/v2` | `report_configurations`, `report_generation_runs`, `report_generated_artifacts` |
+| Cross-run | `generate-cross-run-report` job | folded into `/analytics` hero |
+| Evaluator drafting | `generate-evaluator-draft` job | drafts via LLM-assisted overlay |
 
-- per-run report generation with `generate-report` (legacy `reports` route)
-- cross-run analytics generation with `generate-cross-run-report`
-- evaluator drafting support with `generate-evaluator-draft`
-- a v2 report builder pipeline with durable config/run/artifact rows (`report_configs`, `report_runs`, `report_artifacts`) and two routes: `/api/report-builder` and `/api/report-builder/v2`
+### Analytics
 
-Analytics is a separate domain backed by its own tables:
+Separate domain backed by `analytics.*` tables:
 
-- `analytics_charts`, `analytics_dashboards` — chart and dashboard definitions
-- `analytics_jobs` — analytics execution queue (coordinated with the generic job worker)
-- `analytics_run_facts`, `analytics_eval_facts`, `analytics_criterion_facts` — derived fact tables
-- `analytics_query_cache` — caching layer for repeat queries
+- Definitions: `analytics_charts`, `analytics_dashboards`
+- Facts: `fact_evaluation`, `fact_evaluation_criterion`, `fact_lead_stage_transition`, `fact_lead_activity`, `fact_lead_signal`
+- Dimensions: `dim_lead`
+- Aggregates: `agg_evaluation_run`, `agg_llm_usage_daily`
+- Logs: `log_fact_population_run`, `log_sherlock_tool_call`, `log_crm_source_sync`, `log_clinical_action_outbox`
+- Cache: `cache_sql_query`
 
-Analytics facts are populated by `populate-analytics` jobs; request handlers never write facts directly. The analytics service can read from a separate database via `ANALYTICS_DATABASE_URL`, falling back to `DATABASE_URL` when unset.
-
-### Sherlock (constrained analytics agent)
-
-Sherlock is a bounded LLM agent that answers analytics questions over the fact tables. Its execution trace persists in dedicated runtime tables:
-
-- `sherlock_agent_sessions` — one row per user conversation
-- `sherlock_conversation_turns` — one row per user/agent turn
-- `sherlock_turn_events` — tool invocations and intermediate state
-- `agent_tool_logs` — structured log of tool calls and their results
-
-Key properties:
-
-- Sherlock sessions are per-tenant, per-user, per-app. Always filter runtime rows by that triple.
-- Sherlock never writes to `eval_runs` or analytics fact tables. It only reads and optionally binds chart output into `analytics_charts`.
-- Chat streaming is handled by `chat_engine` (routes: `/api/chat-engine`); the frontend surface is `src/features/chat-widget/`.
+Facts are populated by `populate-analytics` and `backfill-*` jobs. Request handlers never write facts directly.
 
 ### Cost tracking
 
-Cost tracking is the observability plane for LLM spend. It is independent of evaluation results but consumes the same execution flow: every model generation produced by `LoggingLLMWrapper` writes a single `llm_usage` row with provider, model, token counts, duration, correlation id, owner type/id, subsystem, and polymorphic ownership keys. Request handlers never write to the usage or rollup tables.
+Observability plane for LLM spend. Every generation through `LoggingLLMWrapper` writes one `analytics.fact_llm_generation` row (provider, model, token counts, duration, correlation id, owner triple, subsystem). `populate-cost-rollup` rebuilds `analytics.agg_llm_usage_daily`. Pricing resolution goes through `cost_tracking` + `pricing_cache`; never hand-roll provider/model normalization.
 
-Supporting tables:
-
-- `llm_usage` — append-only fact table of generation calls
-- `model_pricing` / `model_aliases` — tenant-scoped pricing with alias resolution
-- `llm_usage_daily_rollup` — daily aggregate rebuilt by `populate-cost-rollup` jobs
-- `models_dev_catalog` / `models_dev_snapshot` — read-through cache of the models.dev catalog used for pricing refresh
-
-Surfaces:
-
-- User-facing routes under `/api/cost`: overview, spend, efficiency, entity drill-down, calls list, call detail, and pricing bundle
-- Admin-facing routes under `/api/admin`: pricing edits, refresh, backfill-unpriced, and snapshot history
-- Frontend: `src/features/cost/` with `costStore` and `src/services/api/costApi.ts`
-- Non-app subsystems (Sherlock, report_builder, system_library) record usage with a populated `subsystem` field instead of an `app_id`
+Surfaces: `/api/cost/*` for tenant/user views; admin sub-router under `/api/admin/cost/*` for pricing edits + refresh + backfill + snapshots. FE: `src/features/cost/`.
 
 ---
 
-## CORE ABSTRACTIONS
+## Core abstractions
 
-### EvalRun is the center of the system
+### `EvaluationRun` is central
 
-Every evaluation outcome lands in `eval_runs`. The `eval_type` field determines how to interpret the `result` payload.
+Every evaluation outcome lands in `platform.evaluation_runs`. `eval_type` discriminates the result shape:
 
-```text
-custom             single evaluator output
-full_evaluation    Voice Rx full pipeline output
-human              manual review / human-authored result
-batch_thread       aggregate thread evaluation output
-batch_adversarial  aggregate adversarial evaluation output
-call_quality       inside-sales call evaluation output
+```
+custom              single evaluator output
+full_evaluation     Voice Rx transcribe + critique
+human               manual human-authored result
+batch_thread        aggregate thread evaluation
+batch_adversarial   aggregate adversarial evaluation
+call_quality        inside-sales call evaluation
 ```
 
-Dependent detail rows hang off that core record:
+Cascade:
 
-```text
+```
 listings / chat_sessions
-    -> eval_runs
-        -> thread_evaluations
-        -> adversarial_evaluations
-        -> api_logs
-        -> eval_review_items (via eval_reviews)
-        -> analytics_*_facts (via populate-analytics)
+  -> evaluation_runs
+      -> evaluation_run_thread_results
+      -> evaluation_run_adversarial_results
+      -> evaluation_run_api_call_logs
+      -> evaluation_review_items (via evaluation_reviews)
+      -> analytics.fact_evaluation (via populate-analytics)
 ```
 
-### Jobs are the execution model
+### Jobs
 
-Long-running work is submitted as a job row and executed by the worker. The registered job types are:
+17 registered job types:
 
-| Job type | Purpose |
-| --- | --- |
-| `evaluate-voice-rx` | Voice Rx transcription and critique |
-| `evaluate-custom` | Single custom evaluator run |
-| `evaluate-custom-batch` | Batch custom evaluator execution |
-| `evaluate-batch` | Thread batch evaluation |
-| `evaluate-adversarial` | Adversarial testing |
-| `evaluate-inside-sales` | Inside Sales scoring |
-| `generate-report` | Single-run reporting |
-| `generate-evaluator-draft` | Draft evaluator generation |
-| `generate-cross-run-report` | Cross-run analytics reporting |
-| `sync-external-source` | Pull upstream data (LeadSquared, Kaira) into source tables |
-| `populate-analytics` | Fan out stored runs into analytics fact tables |
-| `populate-cost-rollup` | Rebuild `llm_usage_daily_rollup` for a date range |
+```
+evaluate-voice-rx
+evaluate-batch
+evaluate-adversarial
+evaluate-custom
+evaluate-custom-batch
+evaluate-inside-sales
+generate-report
+generate-evaluator-draft
+generate-cross-run-report
+sync-external-source
+populate-analytics
+populate-cost-rollup
+backfill-facts-from-mirror
+backfill-lead-signals
+backfill-stage-transitions
+run-workflow
+resume-waiting-cohorts
+```
 
-The queue layer supports more than simple FIFO processing. `job_worker.py` includes:
+The worker (`backend/app/services/job_worker.py`) supports queue classes (`interactive`, `standard`, `bulk`, `analytics`), priorities, leases + heartbeats, retry scheduling, stale recovery, orphaned-run reconciliation, and per-tenant/app/user concurrency caps.
 
-- queue classes: `interactive`, `standard`, `bulk`, `analytics`
-- priorities
-- retry scheduling for retry-safe job types
-- leases and heartbeats
-- per-tenant, per-app, per-user concurrency controls
-- stale job and orphaned run recovery
+### LLM call sites
 
-### Provider layer
+Every generation flows through a capability-named call site resolved in `llm_credentials/`:
 
-All model calls go through `backend/app/services/evaluators/llm_base.py`. Current providers:
+- Resolution: per-call override → `TenantCallSiteDefault` for the capability → platform fallback. Sherlock keeps tenant-specific preservation rows.
+- `TenantLLMDeployment` forward-declares model + declared capabilities. `TenantLLMCredential` carries Fernet-encrypted provider auth (`LLM_CREDENTIAL_KEY`).
+- Capability gating: admin/builder dropdowns surface only deployments whose declared capabilities cover the call site.
+- Direct provider SDK calls are forbidden.
 
-| Provider | Notes |
-| --- | --- |
-| Gemini | Supports API key and service-account auth; uses `Part.from_bytes()` for Vertex media |
-| OpenAI | API-key based |
-| Azure OpenAI | Endpoint plus deployment configuration |
-| Anthropic | API-key based |
+### Provider integrations (orchestration)
 
-Important Gemini rules:
+`backend/app/services/orchestration/integrations/`: adapters per vendor (WATI, AiSensy, Bolna, MSG91, LSQ, clinical outbox). Selected at runtime by `ProviderConnection`. Never instantiate provider SDKs in route handlers.
 
-- Vertex AI media uses `Part.from_bytes()`, not file uploads
-- disabling thinking means omitting `thinking_config`
-- model family 2.5 uses `thinking_budget`
-- model family 3+ uses `thinking_level`
+### Frontend state
 
-### Stores are frontend caches
+- Server data → TanStack Query via `apiQueryFn` (401-refresh + dedupe).
+- Client-only state → Zustand (canvas selection, viewport, snapshot hashes, in-flight flags).
+- Stores still pre-migration: `evaluatorsStore`, `costStore`, `insideSalesStore`. Call out the drift when you touch one.
 
-The React app uses 17 Zustand stores:
+### Tenant + RBAC
 
-`authStore`, `appStore`, `appSettingsStore`, `llmSettingsStore`, `globalSettingsStore`, `listingsStore`, `evaluatorsStore`, `evalTemplatesStore`, `chatStore`, `uiStore`, `miniPlayerStore`, `taskQueueStore`, `jobTrackerStore`, `crossRunStore`, `insideSalesStore`, `reviewModeStore`, `costStore`
-
-These stores cache backend state. PostgreSQL is the source of truth.
-
-### Tenant and RBAC model
-
-Every row belongs to a tenant. Access control is enforced through:
-
-- bearer-token auth on all non-auth routes
-- `AuthContext` on protected backend routes
-- roles, role permissions, and role app access
-- a backend-owned permission catalog exposed to admin role tooling via `/api/admin/permission-catalog`
-- owner-only surfaces that stay outside the grantable catalog, such as role lifecycle and tenant configuration
-- invite links instead of open signup
-
-Visibility is a separate layer from RBAC for shareable assets. The canonical visibility states are `private` and `shared`, and visibility-changing operations are guarded by `asset:share` rather than by generic edit permissions.
-
-System-owned library data is stored under the well-known system tenant and system user IDs.
+- Every owned-data query filters by `tenant_id`. User-owned rows additionally filter by `user_id`.
+- Permission gating via `AuthContext` + `require_permission(...)`. Admin surfaces require an admin role.
+- Roles, role-permission grants, role-application grants are RBAC-DB-resident.
+- Invite links replace open signup.
+- Visibility (`private` / `shared`) is a separate layer from RBAC for shareable assets; visibility changes guarded by `asset:share`.
+- System library data: `SYSTEM_TENANT_ID` + `SYSTEM_USER_ID`.
 
 ---
 
-## SYSTEM ARCHITECTURE
+## System shape
 
 ```text
-Browser (React SPA)                      Backend (FastAPI)                      Data / Infra
-+-----------------------------------+    +-----------------------------------+  +-----------------------------+
-| 22 feature areas                  |    | 26 route groups                   |  | PostgreSQL (55 tables)      |
-| 17 Zustand stores                 |    | provider layer                    |  | optional analytics DB       |
-| api client + jobPolling.ts        |<-->| job worker + analytics populator  |  | Azure Blob or local files   |
-| DataTable + UI primitives         |    | reports v1/v2, reviews, Sherlock  |  | Azure App Service / Docker  |
-| routes + Sherlock chat widget     |    | evaluators, auth, RBAC, cost      |  | ACR + GitHub Actions        |
-+-----------------------------------+    +-----------------------------------+  +-----------------------------+
-            :5173 dev / :80 prod                      :8721
+Browser (React SPA)                Backend (FastAPI)                 Data + Infra
++------------------------+         +------------------------+        +-------------------------+
+| 22+ feature areas      |         | 33 route groups        |        | PostgreSQL (3 schemas,  |
+| 18 Zustand stores      |         | provider + integration |        | ~80 tables)             |
+| TanStack Query         | <-----> | layers                 |        | optional analytics DB   |
+| api client + polling   |         | job worker + scheduler |        | Azure Blob Storage      |
+| DataTable + UI prims   |         | reports v1/v2, reviews |        | Azure Container Apps    |
+| ChatWidget (Sherlock)  |         | Sherlock + analytics   |        | Azure Container Registry|
++------------------------+         +------------------------+        +-------------------------+
+            :5173 dev / :443 prod              :8721
 ```
 
-### Production service shape
+### Postgres schemas (3)
 
-`docker-compose.prod.yml` runs:
+- `platform` — tenants, users, identity, RBAC, apps, settings, evaluations, evaluators, library data, scheduler, sherlock runtime, tenant LLM providers.
+- `analytics` — facts, aggregates, logs, dimensions, ref tables, cache.
+- `orchestration` — workflows, versions, triggers, runs, recipient state, provider connections, cohort datasets, action templates.
 
-- `frontend`
-- `backend`
-- `worker`
+Cross-schema FKs go FROM `orchestration` TO `platform`.
 
-There is no `postgres` container in production. Production uses Azure Database for PostgreSQL instead.
+### Deploy targets
 
-### Local development service shape
-
-`docker-compose.yml` runs:
-
-- `postgres`
-- `backend`
-- `worker`
-- `frontend`
-
-Both local and production container stacks use a dedicated worker process by setting `JOB_RUN_EMBEDDED_WORKER=false`.
-
-If you run the backend directly with Uvicorn outside Docker, the default config enables the embedded worker unless you disable it.
+- **Local**: `docker-compose.yml` runs `postgres + backend + worker + frontend`.
+- **Production**: Azure Container Apps. `ai-evals-be-prod` runs the backend image with `JOB_RUN_EMBEDDED_WORKER=True` (worker loop in-process). `ai-evals-fe-prod` runs the frontend. There is no separate worker container in prod today.
 
 ---
 
-## FRONTEND STRUCTURE
+## Backend structure
 
-Top-level feature areas under `src/features/`:
+### Route groups (33)
 
-| Feature area | Responsibility |
-| --- | --- |
-| `admin` | Tenant, user, and operational admin surfaces |
-| `analytics` | Dashboards, charts, and summary views |
-| `auth` | Login and signup flow |
-| `chat-widget` | Sherlock chat surface and chart binding UI |
-| `cost` | LLM spend dashboards, pricing admin, and calls drill-down |
-| `credentialPool` | Credential management UI |
-| `csvImport` | CSV ingestion flows |
-| `evalRuns` | Run list and run-detail flows |
-| `evals` | Evaluation-centric shared UI |
-| `export` | Export actions and report outputs |
-| `guide` | In-app guide and reference views |
-| `insideSales` | Inside Sales workspace |
-| `kaira` | Kaira Bot workspace |
-| `kairaBotSettings` | Kaira-specific settings and tag management |
-| `listings` | Listing management |
-| `reportBuilder` | Report v2 builder surface |
-| `reviews` | Human review of eval runs |
-| `settings` | Global app settings, prompts, schemas, evaluators |
-| `structured-outputs` | Structured output viewers and helpers |
-| `transcript` | Transcript display and review |
-| `upload` | Upload and validation flows |
-| `voiceRx` | Voice Rx workspace |
+`auth`, `listings`, `files`, `evaluators`, `chat`, `chat_engine`, `history`, `settings`, `tags`, `jobs`, `evaluation_runs` (+ threads), `llm`, `llm_assist`, `adversarial_config`, `adversarial_test_cases`, `admin`, `admin_ai_settings`, `reports`, `report_builder` (+ v2), `inside_sales`, `apps`, `roles`, `rules`, `eval_templates`, `reviews`, `analytics_library`, `cost` (+ cost admin), `scheduled_jobs`, `orchestration_webhooks` (public), `orchestration`, `orchestration_connections`, `orchestration_datasets`, `orchestration_cohorts`.
 
-Important shared frontend layers:
+`prompts` and `schemas` are ORM-backed resources managed through `/api/settings` and related surfaces (no standalone router).
 
-- `src/services/api/client.ts` for HTTP
-- `src/services/api/jobPolling.ts` for async job lifecycle handling
-- `src/config/routes.ts` for route construction
-- `src/components/ui/` for primitives, including the unified `DataTable`
-- `src/utils/cn.ts` for class merging
+### Schema + migrations
+
+Alembic is the only schema truth. Migrations at `backend/alembic/versions/`. `alembic upgrade head` runs on every container boot via `backend/entrypoint.sh`. Baseline `0001_baseline_prod` is stamped on prod; fresh dev/CI applies end-to-end. There is no `startup_schema.py` and no bootstrap-create script. Every raw SQL string (`text(...)`, `op.execute(...)`, hand-written SQL in seeds) must schema-qualify (`platform.evaluators`, `analytics.fact_evaluation`, etc.).
+
+### Lifespan boot order
+
+`configure_logging → validate_startup_config → import job_worker → alembic check + sync_column_comments → manifest_validator → seed_all_defaults → seed_bootstrap_admin → validate_app_pack_ids → cleanup_expired_refresh_tokens → recover_stale_jobs (embedded worker only) → worker + recovery + scheduler-tick loops`.
+
+### Seed defaults
+
+Seed only platform-wide bootstrap: system tenant + user, Owner role, app records, default prompts/schemas, model pricing ref data, evaluator seed catalog, sherlock ontology. Per-tenant config / credentials / LLM defaults belong in DB inserts via admin UI or runbook SQL, NOT in seed files.
 
 ---
 
-## BACKEND STRUCTURE
+## Frontend structure
 
-### Route groups
+Top-level features under `src/features/`: `admin`, `analytics`, `auth`, `chat-widget`, `cost`, `credentialPool`, `csvImport`, `evalRuns`, `evals`, `export`, `guide`, `insideSales`, `kaira`, `kairaBotSettings`, `listings`, `orchestration`, `reportBuilder`, `reviews`, `settings`, `structured-outputs`, `transcript`, `upload`, `voiceRx`.
 
-The backend currently registers 26 route groups:
-
-`auth`, `listings`, `files`, `evaluators`, `chat`, `chat_engine`, `history`, `settings`, `tags`, `jobs`, `eval_runs` (+ `threads`), `llm`, `adversarial_config`, `adversarial_test_cases`, `admin`, `reports`, `report_builder` (+ `v2`), `inside_sales`, `apps`, `roles`, `rules`, `eval_templates`, `reviews`, `analytics_library`, `cost` (+ cost admin)
-
-`prompts` and `schemas` are ORM-backed resources but do not have standalone routers; they are managed through `/api/settings` and related surfaces.
-
-### ORM tables
-
-The SQLAlchemy model layer currently defines 55 tables across six domains:
-
-- **Core platform:** `tenants`, `users`, `refresh_tokens`, `invite_links`, `apps`, `tenant_configs`, `audit_log`, `api_logs`, `jobs`, `files`
-- **Evaluation:** `listings`, `prompts`, `schemas`, `evaluators`, `eval_templates`, `eval_runs`, `thread_evaluations`, `adversarial_evaluations`, `adversarial_test_cases`, `tags`, `history`, `settings`, `evaluation_analytics`, `chat_sessions`, `chat_messages`, `external_agents`, `lsq_lead_cache`
-- **RBAC:** `roles`, `role_app_access`, `role_permissions`
-- **Generic CRM-backed source records (Inside Sales first consumer):** `source_call_records`, `source_lead_records`, `source_sync_runs`
-- **Reports / reviews / analytics / agent runtime:** `report_configs`, `report_runs`, `report_artifacts`, `eval_reviews`, `eval_review_items`, `analytics_charts`, `analytics_dashboards`, `analytics_jobs`, `analytics_query_cache`, `analytics_run_facts`, `analytics_eval_facts`, `analytics_criterion_facts`, `agent_tool_logs`, `sherlock_agent_sessions`, `sherlock_conversation_turns`, `sherlock_turn_events`
-- **Cost tracking:** `llm_usage`, `model_pricing`, `model_aliases`, `llm_usage_daily_rollup`, `models_dev_catalog`, `models_dev_snapshot`
-
-### Startup and seeding
-
-`backend/app/main.py` does several important things at startup:
-
-1. validates critical config
-2. creates tables
-3. applies safe one-time migrations, including legacy visibility normalization and legacy `role_permissions` rewrites to canonical permission IDs
-4. seeds defaults
-5. bootstraps the first admin if needed
-6. starts recovery and worker loops when embedded execution is enabled
-
-### Seeded defaults
-
-`seed_defaults.py` seeds:
-
-- system tenant, system user, and the Owner system role
-- app records for `voice-rx`, `kaira-bot`, and `inside-sales`
-- default prompts and schemas
-
-The Owner role is intentionally outside the grantable permission catalog. It retains full access through owner-only bypass semantics instead of through seeded grantable permissions.
-
-Evaluators are not auto-seeded on startup. They must be seeded separately per app.
+Shared layers: `src/services/api/client.ts` (HTTP), `src/services/api/jobPolling.ts` (`submitAndPollJob`), `src/config/routes.ts`, `src/components/ui/` (primitives + unified `DataTable`), `src/utils/cn.ts`, `src/utils/statusColors.ts`.
 
 ---
 
-## REPRESENTATIVE DATA FLOWS
+## Representative flows
 
-### Voice Rx upload evaluation
+### Voice Rx upload
 
-```text
-file upload
- -> POST /api/files
- -> listing creation
- -> POST /api/jobs (evaluate-voice-rx)
- -> worker claims the job
- -> transcription call with audio
- -> critique call with text only
- -> EvalRun + ApiLog rows persist
- -> frontend polls job status and navigates to run detail
+```
+upload -> POST /api/files
+       -> listing creation
+       -> POST /api/jobs (evaluate-voice-rx)
+       -> worker claims
+       -> transcription (audio) -> critique (text only)
+       -> EvaluationRun + api_call_logs persist
+       -> FE polls + navigates to run-detail
 ```
 
-### Kaira batch evaluation
+### Kaira batch
 
-```text
-CSV import
- -> listing or thread source creation
- -> POST /api/jobs (evaluate-batch)
- -> worker iterates rows and evaluators
- -> thread_evaluations rows persist
- -> aggregate EvalRun persists
- -> populate-analytics job fans facts into analytics_*_facts
- -> reports or Sherlock queries can consume the results
+```
+CSV import -> listing
+           -> POST /api/jobs (evaluate-batch)
+           -> worker iterates rows + evaluators
+           -> thread results persist
+           -> aggregate EvaluationRun
+           -> populate-analytics -> analytics.fact_evaluation
 ```
 
-### Kaira adversarial workflow
+### Inside Sales
 
-```text
-configure adversarial settings, personas, and saved test cases
- -> submit evaluate-adversarial
- -> worker executes adversarial probe sequence
- -> adversarial_evaluations rows persist
- -> aggregate EvalRun persists
+```
+sync-external-source -> crm_call_record + crm_lead_record + log_crm_source_sync
+                     -> evaluate-inside-sales on resolved selection
+                     -> scoring pipeline runs
+                     -> EvaluationRun + call-level outputs
+                     -> dashboards, reports, Sherlock consume
 ```
 
-### Inside Sales workflow
+### Orchestration campaign
 
-```text
-sync-external-source job pulls LeadSquared data into source tables
- -> submit evaluate-inside-sales on mirrored selection
- -> scoring pipeline runs
- -> EvalRun and supporting outputs persist
- -> dashboards, reports, and Sherlock consume the stored results
+```
+seeded workflow clone -> bind ProviderConnection
+                     -> cron trigger or Run Now
+                     -> run-workflow job
+                     -> per-node steps + per-recipient state
+                     -> dispatch action -> provider integration
+                     -> webhook resume polling
+                     -> log_clinical_action_outbox / crm logs
 ```
 
-### Sherlock analytics question
+### Sherlock question
 
-```text
-user opens chat-widget
- -> POST /api/chat-engine creates sherlock_agent_session
- -> each turn persists sherlock_conversation_turns + sherlock_turn_events
- -> tool calls log into agent_tool_logs
- -> chart output binds into analytics_charts when surfaced
+```
+ChatWidget -> POST /api/report-builder/v2/chat/stream (SSE)
+           -> turn_orchestrator opens sherlock_conversation_turn
+           -> supervisor -> data_specialist.as_tool (submit_sql)
+           -> bouncer + verified queries
+           -> chart payload (typed) emits Vega-Lite spec
+           -> FE branches on payload.kind
+           -> sherlock_turn_events persist; chart binds into analytics_charts if saved
 ```
 
 ---
 
-## OPERATIONAL CONVENTIONS
+## Operational invariants
 
-### API contract
-
-Backend code uses `snake_case`. API JSON uses `camelCase` through the Pydantic schema layer.
-
-### LLM settings scope
-
-LLM settings are global per tenant and user, stored with `app_id=""`. App-specific settings use the actual app ID.
-
-### Frontend async rule
-
-Components should not own their own job polling loops. They must use `submitAndPollJob()`.
-
-### Backend auth rule
-
-`/api/auth/*` routes are the only public routes. Everything else requires bearer auth and tenant-aware filtering.
-
-### File storage modes
-
-The backend supports:
-
-- `local`
-- `azure_blob`
-
-### Analytics database
-
-By default the analytics service reads from the primary database. Setting `ANALYTICS_DATABASE_URL` routes analytics reads and fact writes to a separate Postgres instance, which is the intended production topology when analytics volume grows.
+- API contract: backend `snake_case`; API JSON `camelCase` via `CamelModel` / `CamelORMModel`.
+- LLM settings scope: global per tenant + user at `app_id=""`.
+- Public routes: `/api/auth/*` and `/api/orchestration/webhooks/*` only. Everything else requires bearer auth + tenant filtering.
+- File storage: `local` or `azure_blob`. Production = `azure_blob`.
+- Analytics DB: `ANALYTICS_DATABASE_URL` if separate, else `DATABASE_URL`.
+- Worker topology depends on deploy target. Prod single-container backend defaults `JOB_RUN_EMBEDDED_WORKER=true`. Local compose runs a dedicated worker with `JOB_RUN_EMBEDDED_WORKER=false`.
 
 ---
 
-## IF YOU ARE NEW TO THE REPO
+## New to the repo
 
-Start in this order:
+Read in this order:
 
-1. `README.md` for a quick orientation
-2. `docs/SETUP.md` for local or production setup
-3. `backend/app/main.py` for startup and route registration
-4. `backend/app/services/job_worker.py` for execution behavior
-5. `src/services/api/jobPolling.ts` for frontend async orchestration
-6. the workspace feature directory you are changing
+1. `README.md`
+2. `docs/SETUP.md`
+3. This file
+4. `CLAUDE.md` (operational rules)
+5. `backend/app/main.py` (startup + route registration)
+6. `backend/app/services/job_worker.py` (execution behavior)
+7. `src/services/api/jobPolling.ts` (FE async)
+8. The workspace feature directory you are changing

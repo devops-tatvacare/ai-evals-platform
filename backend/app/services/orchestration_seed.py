@@ -1,25 +1,9 @@
-"""Seed loader for orchestration.* — system action templates + seed workflows + scheduled poller.
-
-Phase 0 shipped empty scaffolding. Phase 4 added the singleton resume-waiting-cohorts
-scheduled job. Phase 8 added system action templates + the "Default MQL Concierge"
-crm workflow. Phase 9 added the "DM2 Adherence Watch" clinical pathway. Phase 10
-adds bootstrap of default provider connections from env + injection of those
-connection_ids and explicit variable_mappings into the seeded workflow JSON
-so the builder shows editable rows instead of hidden inherited behaviour.
-
-Loader runs idempotently from app startup (lifespan hook). Each insert uses
-the model's natural-key uniqueness so reseed is a no-op. When a seeded
-workflow's definition changes upstream, the loader publishes a new
-WorkflowVersion and points current_published_version_id at it (existing
-versions are immutable).
-"""
+"""Seed loader for orchestration system defaults (templates, provider connections, scheduled poller)."""
 from __future__ import annotations
 
 import json
 import logging
 import uuid
-from copy import deepcopy
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -28,61 +12,34 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.constants import SYSTEM_TENANT_ID, SYSTEM_USER_ID
-from app.models.mixins.shareable import Visibility
-from app.models.orchestration import (
-    Workflow,
-    WorkflowActionTemplate,
-    WorkflowVersion,
-)
+from app.models.orchestration import WorkflowActionTemplate
 from app.models.provider_connection import ProviderConnection
 from app.models.scheduled_job import ScheduledJobDefinition
 from app.models.tenant import Tenant
-from app.models.user import User
 from app.services.orchestration.connections import crypto as connection_crypto
 
 
 _SEEDS_ROOT = Path(__file__).parent / "orchestration_seeds"
 _TEMPLATES_DIR = _SEEDS_ROOT / "action_templates"
-_WORKFLOWS_DIR = _SEEDS_ROOT / "workflows"
 
 
 _log = logging.getLogger(__name__)
 
 
-# Anomaly sweep — off-by-default safety net for the per-correlation Bolna
-# polling chain. Replaces the every-minute ``poll-bolna-executions`` and
-# ``resume-waiting-cohorts`` crons (both retired): a daily 03:00 UTC
-# scan that re-enqueues a fresh polling job for any open Bolna row
-# older than 6 hours that has no live polling chain. The schedule is
-# inserted ``enabled=False`` so the platform pays nothing in steady
-# state — flip it on only if an orphan is observed in production.
-ANOMALY_SWEEP_APP_ID = ""
-ANOMALY_SWEEP_JOB_TYPE = "orchestration-anomaly-sweep"
-ANOMALY_SWEEP_SCHEDULE_KEY = "platform:orchestration:anomaly-sweep"
-ANOMALY_SWEEP_CRON = "0 3 * * *"
-
-# Schedule keys of the retired every-minute pollers. Migration 0026
-# deletes any existing rows; the constants stay so the seeder can
-# re-delete defensively in case the migration was rolled back without
-# the code change.
-LEGACY_RESUME_POLLER_SCHEDULE_KEY = "platform:orchestration:resume-waiting-cohorts"
-LEGACY_BOLNA_EXEC_POLLER_SCHEDULE_KEY = "platform:orchestration:poll-bolna-executions"
+# Schedule keys retired by the vendor-abstraction Phase 1 wipe — the seeder defensively
+# deletes any rows still present from a pre-cutover DB.
+_RETIRED_SCHEDULE_KEYS = (
+    "platform:orchestration:resume-waiting-cohorts",
+    "platform:orchestration:poll-bolna-executions",
+    "platform:orchestration:anomaly-sweep",
+)
 
 
 async def seed_orchestration_defaults(db: AsyncSession) -> None:
-    """Insert orchestration system defaults. Idempotent.
-
-    Order matters: scheduled pollers first (no dependencies), then action
-    templates (referenced by node configs in workflow definitions), then
-    bootstrap of default provider connections from env vars (so the
-    workflow-fixture loader can resolve connection_ids for the system
-    workflow JSON), then seeded workflows.
-    """
-    await _delete_legacy_poller_schedules(db)
-    await _ensure_anomaly_sweep_scheduled(db)
+    """Insert orchestration system defaults. Idempotent."""
+    await _delete_retired_poller_schedules(db)
     await _seed_system_action_templates(db)
     await _bootstrap_default_connections_from_env(db)
-    await _seed_workflow_fixtures(db)
     _log.info("orchestration.seed.complete")
 
 
@@ -213,65 +170,6 @@ async def _bootstrap_default_connections_from_env(db: AsyncSession) -> None:
     await db.flush()
 
 
-async def _system_connection_id_by_provider(
-    db: AsyncSession, *, app_id: str,
-) -> dict[str, uuid.UUID]:
-    """Lookup table keyed by provider for the system-bootstrapped rows."""
-    out: dict[str, uuid.UUID] = {}
-    for provider, _ in _ENV_BOOTSTRAPPABLE_PROVIDERS:
-        row = await db.scalar(
-            select(ProviderConnection).where(
-                ProviderConnection.tenant_id == SYSTEM_TENANT_ID,
-                ProviderConnection.app_id == app_id,
-                ProviderConnection.provider == provider,
-                ProviderConnection.name == _bootstrapped_connection_name(provider),
-            )
-        )
-        if row is not None:
-            out[provider] = row.id
-    return out
-
-
-# Maps a node type to (provider name, channel for action-template lookup).
-# Channel is None when the node is not template-backed (e.g. lsq updates).
-_CRM_NODE_PROVIDER_CHANNEL: dict[str, tuple[str, Optional[str]]] = {
-    "crm.send_wati": ("wati", "wati"),
-    "crm.place_bolna_call": ("bolna", "bolna"),
-    "crm.lsq_update_stage": ("lsq", None),
-    "crm.lsq_log_activity": ("lsq", None),
-    "crm.send_sms": ("msg91", "sms"),
-}
-
-
-async def _inject_seeded_connection_ids_and_mappings(
-    db: AsyncSession, *, definition: dict[str, Any], app_id: str,
-) -> dict[str, Any]:
-    """Return a deep copy of ``definition`` with each credential-backed
-    ``crm.*`` node augmented with a ``connection_id`` resolved from
-    env-bootstrapped system connections.
-
-    Variable mappings are NOT injected here — workflows declare them
-    directly on each node (single source of truth). No-op for nodes whose
-    provider has no env-bootstrapped connection.
-    """
-    by_provider = await _system_connection_id_by_provider(db, app_id=app_id)
-    if not by_provider:
-        return definition
-
-    enriched = deepcopy(definition)
-    for node in enriched.get("nodes", []):
-        node_type = node.get("type")
-        if node_type not in _CRM_NODE_PROVIDER_CHANNEL:
-            continue
-        provider = _CRM_NODE_PROVIDER_CHANNEL[node_type][0]
-        cid = by_provider.get(provider)
-        if cid is None:
-            continue
-        config = node.setdefault("config", {})
-        config["connection_id"] = str(cid)
-    return enriched
-
-
 async def _seed_system_action_templates(db: AsyncSession) -> None:
     """Load every action_templates/*.json as a system-default template.
 
@@ -313,223 +211,17 @@ async def _seed_system_action_templates(db: AsyncSession) -> None:
     await db.flush()
 
 
-async def _seed_workflow_fixtures(db: AsyncSession) -> None:
-    """Load every workflows/*.json as a system-owned workflow + v1 version.
-
-    Lookup key is (SYSTEM_TENANT_ID, app_id, slug). On drift, publishes a new
-    version (existing versions are immutable) and points
-    current_published_version_id at it. The system tenant must exist —
-    otherwise we silently skip (matches the resume-poller pattern: a fresh
-    DB without seed_defaults run has no system tenant yet).
-    """
-    if not _WORKFLOWS_DIR.is_dir():
-        return
-    tenant = await db.get(Tenant, SYSTEM_TENANT_ID)
-    if tenant is None:
-        _log.warning(
-            "orchestration.seed.workflows.missing_system_tenant tenant_id=%s — skipping",
-            SYSTEM_TENANT_ID,
-        )
-        return
-    system_user = await db.get(User, SYSTEM_USER_ID)
-    if system_user is None:
-        _log.warning(
-            "orchestration.seed.workflows.missing_system_user user_id=%s — skipping",
-            SYSTEM_USER_ID,
-        )
-        return
-
-    for path in sorted(_WORKFLOWS_DIR.glob("*.json")):
-        with path.open() as f:
-            spec = json.load(f)
-        # Inject env-bootstrapped connection ids + explicit variable_mappings
-        # before the upsert so definition-drift detection picks up changes
-        # the same way as upstream JSON edits.
-        spec["definition"] = await _inject_seeded_connection_ids_and_mappings(
-            db, definition=spec["definition"], app_id=spec["app_id"],
-        )
-        await _upsert_seeded_workflow(db, spec)
-
-
-async def _upsert_seeded_workflow(db: AsyncSession, spec: dict[str, Any]) -> None:
-    app_id = spec["app_id"]
-    slug = spec["slug"]
-    existing = await db.scalar(
-        select(Workflow).where(
-            Workflow.tenant_id == SYSTEM_TENANT_ID,
-            Workflow.app_id == app_id,
-            Workflow.slug == slug,
-        )
-    )
-
-    if existing is None:
-        wf = Workflow(
-            id=uuid.uuid4(),
-            tenant_id=SYSTEM_TENANT_ID,
-            app_id=app_id,
-            workflow_type=spec["workflow_type"],
-            slug=slug,
-            name=spec["name"],
-            description=spec.get("description"),
-            created_by=SYSTEM_USER_ID,
-            visibility=Visibility.SHARED,
-            shared_by=SYSTEM_USER_ID,
-            shared_at=datetime.now(timezone.utc),
-        )
-        db.add(wf)
-        await db.flush()
-        v = WorkflowVersion(
-            id=uuid.uuid4(),
-            tenant_id=SYSTEM_TENANT_ID,
-            app_id=app_id,
-            workflow_id=wf.id,
-            version=1,
-            definition=spec["definition"],
-            status="published",
-            published_by=SYSTEM_USER_ID,
-            published_at=datetime.now(timezone.utc),
-        )
-        db.add(v)
-        await db.flush()
-        wf.current_published_version_id = v.id
-        await db.flush()
-        _log.info("orchestration.seed.workflow.inserted slug=%s app_id=%s", slug, app_id)
-        return
-
-    # Update name/description in place; publish a new version on definition drift.
-    existing.name = spec["name"]
-    existing.description = spec.get("description")
-    existing.visibility = Visibility.SHARED
-    existing.shared_by = SYSTEM_USER_ID
-    existing.shared_at = existing.shared_at or datetime.now(timezone.utc)
-    versions_stmt = (
-        select(WorkflowVersion)
-        .where(WorkflowVersion.workflow_id == existing.id)
-        .order_by(WorkflowVersion.version.desc())
-    )
-    latest = (await db.execute(versions_stmt)).scalars().first()
-    if latest is not None and json.dumps(latest.definition, sort_keys=True) == json.dumps(
-        spec["definition"], sort_keys=True
-    ):
-        return
-    next_version = (latest.version + 1) if latest is not None else 1
-    new_v = WorkflowVersion(
-        id=uuid.uuid4(),
-        tenant_id=SYSTEM_TENANT_ID,
-        app_id=app_id,
-        workflow_id=existing.id,
-        version=next_version,
-        definition=spec["definition"],
-        status="published",
-        published_by=SYSTEM_USER_ID,
-        published_at=datetime.now(timezone.utc),
-    )
-    db.add(new_v)
-    await db.flush()
-    existing.current_published_version_id = new_v.id
-    await db.flush()
-    _log.info(
-        "orchestration.seed.workflow.updated slug=%s app_id=%s version=%d",
-        slug, app_id, next_version,
-    )
-
-
-async def _delete_legacy_poller_schedules(db: AsyncSession) -> int:
-    """Defensively remove the retired every-minute poller rows.
-
-    Migration 0026 owns the canonical delete on ``alembic upgrade``; this
-    seeder runs the same DELETE so a rolled-back migration / fresh
-    bootstrap that ran the SQLAlchemy create_all path also lands in the
-    correct end state. Returns the number of rows removed (typically 0
-    after the migration has run, 2 on a freshly bootstrapped pre-cutover
-    DB)."""
+async def _delete_retired_poller_schedules(db: AsyncSession) -> int:
+    """Defensively remove the rows for poller schedules retired by the vendor-abstraction wipe."""
     from sqlalchemy import delete
 
     result = await db.execute(
         delete(ScheduledJobDefinition).where(
-            ScheduledJobDefinition.schedule_key.in_((
-                LEGACY_BOLNA_EXEC_POLLER_SCHEDULE_KEY,
-                LEGACY_RESUME_POLLER_SCHEDULE_KEY,
-            ))
+            ScheduledJobDefinition.schedule_key.in_(_RETIRED_SCHEDULE_KEYS)
         )
     )
     deleted = int(getattr(result, "rowcount", 0) or 0)
     if deleted:
-        _log.info(
-            "orchestration.legacy_poller_schedules.deleted count=%s",
-            deleted,
-        )
+        _log.info("orchestration.retired_poller_schedules.deleted count=%s", deleted)
     await db.flush()
     return deleted
-
-
-async def _ensure_anomaly_sweep_scheduled(
-    db: AsyncSession, *, now: datetime | None = None
-) -> bool:
-    """Insert the off-by-default anomaly-sweep schedule row if absent.
-
-    The sweep is the safety net for the per-correlation polling chain:
-    if an unhandled exception or container restart breaks a chain, an
-    open Bolna row could sit forever. This daily 03:00 UTC scan
-    re-enqueues a fresh polling job for any orphan correlation older
-    than 6 hours. Inserted with ``enabled=False`` — operators flip it
-    on only if they ever observe an orphan in production. Costs nothing
-    while disabled."""
-    current = now or datetime.now(timezone.utc)
-
-    existing = await db.scalar(
-        select(ScheduledJobDefinition).where(
-            ScheduledJobDefinition.tenant_id == SYSTEM_TENANT_ID,
-            ScheduledJobDefinition.app_id == ANOMALY_SWEEP_APP_ID,
-            ScheduledJobDefinition.job_type == ANOMALY_SWEEP_JOB_TYPE,
-            ScheduledJobDefinition.schedule_key == ANOMALY_SWEEP_SCHEDULE_KEY,
-        )
-    )
-    if existing is not None:
-        return False
-
-    tenant = await db.get(Tenant, SYSTEM_TENANT_ID)
-    if tenant is None:
-        _log.warning(
-            "orchestration.anomaly_sweep.seed.missing_system_tenant tenant_id=%s — skipping",
-            SYSTEM_TENANT_ID,
-        )
-        return False
-
-    system_user = await db.get(User, SYSTEM_USER_ID)
-    created_by = SYSTEM_USER_ID if system_user is not None else None
-
-    from app.services.scheduler.engine import next_cron_tick
-
-    schedule = ScheduledJobDefinition(
-        id=uuid.uuid4(),
-        tenant_id=SYSTEM_TENANT_ID,
-        app_id=ANOMALY_SWEEP_APP_ID,
-        job_type=ANOMALY_SWEEP_JOB_TYPE,
-        schedule_key=ANOMALY_SWEEP_SCHEDULE_KEY,
-        name="Orchestration anomaly sweep",
-        description=(
-            "Off-by-default safety net for the per-correlation Bolna "
-            "polling chain. Re-enqueues a polling job for any open "
-            "Bolna row older than 6 hours that has no live polling "
-            "chain. Flip ``enabled`` only if an orphan is observed in "
-            "production."
-        ),
-        cron=ANOMALY_SWEEP_CRON,
-        params={},
-        override={},
-        enabled=False,
-        next_check_at=next_cron_tick(ANOMALY_SWEEP_CRON, current),
-        current_cycle_attempts=0,
-        created_by=created_by,
-        created_at=current,
-        updated_at=current,
-    )
-    db.add(schedule)
-    await db.flush()
-    _log.info(
-        "orchestration.anomaly_sweep.seed.inserted schedule_id=%s cron=%r enabled=False",
-        schedule.id,
-        ANOMALY_SWEEP_CRON,
-    )
-    return True

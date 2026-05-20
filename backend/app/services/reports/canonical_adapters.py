@@ -360,6 +360,10 @@ def adapt_kaira_run_report(
             for item in payload.adversarial.by_difficulty
         )
 
+    # composition_theme: defensive pass-through. _compose_single_run_payload
+    # rebuilds export_document with the same theme arg, but a future direct
+    # consumer of base_payload.export_document would otherwise silently fall
+    # back to the variant-keyed palette in document_composer.
     export_document = compose_document(
         title=payload.metadata.run_name or 'Evaluation Report',
         subtitle=f'{payload.metadata.app_id} single-run report',
@@ -379,9 +383,11 @@ def adapt_kaira_run_report(
                 metadata={},
                 sections=[],
                 export_config=analytics_config.single_run.export,
+                composition_theme=analytics_config.single_run.theme,
             ),
         ).sections,
         export_config=analytics_config.single_run.export,
+        composition_theme=analytics_config.single_run.theme,
     )
 
     return compose_run_report(
@@ -835,7 +841,11 @@ def adapt_inside_sales_run_report(
         'inside-sales-agents': [
             {
                 'entityId': key,
-                'label': agent.agent_name,
+                # "unknown" is the aggregator's sentinel for calls with no
+                # rep_external_id / rep_label in metadata. Render as a friendly
+                # label so the agent row reads as "Unassigned" instead of a
+                # lowercased placeholder.
+                'label': 'Unassigned' if key == 'unknown' or not agent.agent_name or agent.agent_name == 'unknown' else agent.agent_name,
                 'summary': {
                     'callCount': agent.call_count,
                     'avgQaScore': round(agent.avg_qa_score, 1),
@@ -892,6 +902,10 @@ def adapt_inside_sales_run_report(
             ],
         }
 
+    # composition_theme: defensive pass-through. _compose_single_run_payload
+    # rebuilds export_document with the same theme arg, but a future direct
+    # consumer of base_payload.export_document would otherwise silently fall
+    # back to the variant-keyed palette in document_composer.
     export_document = compose_document(
         title=payload.metadata.run_name or 'Inside Sales Report',
         subtitle='Inside Sales single-run report',
@@ -910,9 +924,11 @@ def adapt_inside_sales_run_report(
                 metadata={},
                 sections=[],
                 export_config=analytics_config.single_run.export,
+                composition_theme=analytics_config.single_run.theme,
             ),
         ).sections,
         export_config=analytics_config.single_run.export,
+        composition_theme=analytics_config.single_run.theme,
     )
     return compose_run_report(
         metadata=metadata,

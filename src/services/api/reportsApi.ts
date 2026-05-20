@@ -1,6 +1,5 @@
 import { apiRequest, apiDownload } from './client';
-import type { CrossRunAnalyticsResponse } from '@/types/crossRunAnalytics';
-import type { PlatformCrossRunNarrative, PlatformCrossRunPayload, PlatformRunReportPayload } from '@/types/platformReports';
+import type { PlatformRunReportPayload } from '@/types/platformReports';
 import type { ReportConfigSummary, ReportRunSummary } from '@/types';
 
 export interface BlueprintSaveSection {
@@ -83,26 +82,4 @@ export const reportsApi = {
 
   exportReportRunPdf: (reportRunId: string): Promise<Blob> =>
     apiDownload(`/api/reports/report-runs/${reportRunId}/export-pdf`),
-
-  /** Fetch cached cross-run analytics for an app. */
-  fetchCrossRunAnalytics: <TAnalytics = PlatformCrossRunPayload>(appId: string): Promise<CrossRunAnalyticsResponse<TAnalytics>> => {
-    const params = new URLSearchParams({ app_id: appId });
-    return apiRequest<CrossRunAnalyticsResponse<TAnalytics>>(`/api/reports/cross-run-analytics?${params}`);
-  },
-
-  /** Recompute cross-run analytics from single_run caches and persist. */
-  refreshCrossRunAnalytics: <TAnalytics = PlatformCrossRunPayload>(appId: string, limit?: number): Promise<CrossRunAnalyticsResponse<TAnalytics>> => {
-    const params = new URLSearchParams({ app_id: appId });
-    if (limit) params.set('limit', String(limit));
-    return apiRequest<CrossRunAnalyticsResponse<TAnalytics>>(`/api/reports/cross-run-analytics/refresh?${params}`, {
-      method: 'POST',
-    });
-  },
-
-  /** Generate AI summary of cross-run analytics. */
-  generateCrossRunSummary: (payload: { appId: string; provider?: string; model?: string }): Promise<PlatformCrossRunNarrative> =>
-    apiRequest<PlatformCrossRunNarrative>('/api/reports/cross-run-ai-summary', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
 };

@@ -497,6 +497,35 @@ class CohortSourceResponse(CamelModel):
     imported_at: Optional[datetime] = None
 
 
+class TerminationReceipt(CamelModel):
+    """Informational result of a hard-Stop: synchronous flip done, provider
+    cancels fanned out to the finalize-run-cancel job."""
+
+    run_id: uuid.UUID
+    status: str
+    recipients_aborted: int
+    finalize_job_id: Optional[uuid.UUID] = None
+    cancel_requested_at: datetime
+
+
+class CancelRunRequest(CamelModel):
+    reason: Literal["operator", "cap_breach", "admin_kill"] = "operator"
+
+
+class CancelAuditRead(CamelORMModel):
+    """One provider-cancel outcome written by the finalize-run-cancel job."""
+
+    id: uuid.UUID
+    run_id: uuid.UUID
+    provider_connection_id: uuid.UUID
+    action_id: Optional[uuid.UUID]
+    batch_correlation_id: Optional[str]
+    outcome: str
+    provider_status_code: Optional[int]
+    provider_message: Optional[str]
+    created_at: datetime
+
+
 __all__ = [
     "WorkflowDefinition", "WorkflowDefinitionNode", "WorkflowDefinitionEdge",
     "WorkflowCreateRequest", "WorkflowUpdateRequest", "WorkflowResponse",
@@ -512,4 +541,5 @@ __all__ = [
     "OverrideRequest", "OverrideResponse",
     "NodeTypeDescriptor", "NodeOutputEdge",
     "CohortSourceResponse",
+    "TerminationReceipt", "CancelRunRequest", "CancelAuditRead",
 ]

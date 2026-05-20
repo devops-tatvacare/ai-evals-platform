@@ -7,8 +7,8 @@
 import type { SchemaDefinition, AppId } from '@/types';
 import { schemasRepository } from '@/services/storage';
 import { deriveSchemaFromApiResponse } from '@/utils/schemaDerivation';
-import { createLLMPipelineWithModel } from '@/services/llm';
-import { SCHEMA_GENERATOR_SYSTEM_PROMPT } from '@/constants';
+import { llmAssistApi } from '@/services/api/llmAssistApi';
+import type { LLMProvider } from '@/services/api/aiSettingsApi';
 
 /**
  * Create a new schema and save to storage
@@ -81,45 +81,35 @@ export function deriveSchemaFromStructuredOutput(
 }
 
 /**
- * Generate schema using AI
+ * Generate schema via the server-side LLM-assist endpoint.
+ *
+ * Phase 3 BYOK: the browser never holds an API key. Caller passes the
+ * provider+model picked from the admin-configured catalogue; the backend
+ * resolves credentials through `resolve_llm_credentials`.
  */
-export async function generateSchemaWithAI(
-  userIdea: string,
-  promptType: SchemaDefinition['promptType'],
-  modelName: string
-): Promise<Record<string, unknown>> {
-  if (!userIdea.trim()) {
+export async function generateSchemaWithAI(args: {
+  provider: LLMProvider;
+  model: string;
+  userIdea: string;
+  promptType: SchemaDefinition['promptType'];
+}): Promise<Record<string, unknown>> {
+  if (!args.userIdea.trim()) {
     throw new Error('User idea cannot be empty');
   }
+  if (!args.provider || !args.model) {
+    throw new Error('Provider and model are required');
+  }
 
-  const pipeline = createLLMPipelineWithModel(modelName);
-
-  const prompt = SCHEMA_GENERATOR_SYSTEM_PROMPT
-    .replace('{{promptType}}', promptType)
-    .replace('{{userIdea}}', userIdea);
-
-  const response = await pipeline.invoke({
-    prompt,
-    output: { format: 'json' },
-    context: {
-      source: 'schema-gen',
-      sourceId: `${promptType}-ai-gen`,
-      metadata: { promptType, userIdea },
-    },
+  const { schema } = await llmAssistApi.generateSchema({
+    provider: args.provider,
+    model: args.model,
+    promptType: args.promptType,
+    userIdea: args.userIdea,
   });
 
-  if (!response.output.text) {
-    throw new Error('No schema generated');
-  }
-
-  // Parse JSON response
-  let schema: Record<string, unknown>;
-  try {
-    schema = JSON.parse(response.output.text);
-  } catch {
+  if (!schema || schema.type !== 'object' || !schema.properties) {
     throw new Error('Invalid JSON schema generated');
   }
-
   return schema;
 }
 
@@ -193,8 +183,8 @@ export class SchemaService {
     return deriveSchemaFromStructuredOutput(output);
   }
 
-  static async generateWithAI(userIdea: string, promptType: SchemaDefinition['promptType'], modelName: string) {
-    return generateSchemaWithAI(userIdea, promptType, modelName);
+  static async generateWithAI(args: Parameters<typeof generateSchemaWithAI>[0]) {
+    return generateSchemaWithAI(args);
   }
 
   static validate(schema: Record<string, unknown>) {

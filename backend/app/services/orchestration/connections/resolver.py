@@ -1,17 +1,4 @@
-"""Per-run, tenant+app-scoped lookup that builds provider services.
-
-A ``ConnectionResolver`` is constructed once per workflow run and passed
-into ``NodeContext.connections``. Handlers call e.g.
-``await ctx.connections.bolna(id)`` to materialize a service from the
-encrypted config (Phase 10 commit 2 wires every CRM node through this).
-
-Cache key is ``connection_id``; cache lifetime is the run. Cross-tenant
-or cross-app rows are filtered out at SQL time and surface as
-``ConnectionNotFound`` (HTTP 404 in the route layer).
-
-``last_used_at`` is touched best-effort; failures are logged once and
-never mask the provider call result (per phase-10 §1.3).
-"""
+"""Per-run, tenant+app-scoped lookup that resolves provider connections to decrypted config."""
 from __future__ import annotations
 
 import logging
@@ -39,21 +26,16 @@ class ConnectionProviderMismatch(ValueError):
 
 
 class ConnectionResolver:
-    """Tenant+app-scoped resolver with per-run service cache.
-
-    Stateful instance — do not share across runs (cache is unbounded within
-    the resolver's lifetime). Build one per node-context construction.
-    """
+    """Tenant+app-scoped resolver with per-run config cache."""
 
     def __init__(self, db: AsyncSession, *, tenant_id: uuid.UUID, app_id: str):
         self._db = db
         self._tenant_id = tenant_id
         self._app_id = app_id
-        self._service_cache: dict[uuid.UUID, Any] = {}
+        self._config_cache: dict[uuid.UUID, dict[str, Any]] = {}
         self._touched_ids: set[uuid.UUID] = set()
 
     async def _load(self, connection_id: uuid.UUID, expected_provider: str) -> dict[str, Any]:
-        """SELECT + decrypt + last_used_at touch. Returns the plaintext config dict."""
         row = await self._db.scalar(
             select(ProviderConnection).where(
                 ProviderConnection.id == connection_id,
@@ -76,7 +58,6 @@ class ConnectionResolver:
         return config
 
     async def _touch_last_used(self, connection_id: uuid.UUID) -> None:
-        """Best-effort. Log once per id per run on failure; never raise."""
         if connection_id in self._touched_ids:
             return
         self._touched_ids.add(connection_id)
@@ -92,101 +73,17 @@ class ConnectionResolver:
                 connection_id, exc,
             )
 
-    async def bolna(self, connection_id: uuid.UUID) -> Any:
-        if connection_id in self._service_cache:
-            return self._service_cache[connection_id]
-        config = await self._load(connection_id, expected_provider="bolna")
-        from app.services.orchestration.integrations.bolna import BolnaService
-        svc = BolnaService(
-            base_url=config["base_url"],
-            api_key=config["api_key"],
-            # Pass through so the in-process token bucket (Phase D) is
-            # keyed correctly per tenant connection.
-            connection_id=connection_id,
-            # Connection-level caller-id default. The dispatch node's
-            # per-call ``override_from_phone`` (when non-empty) wins;
-            # otherwise the service falls back to this. Without this
-            # passthrough the connection's saved ``from_phone`` field
-            # was being silently ignored.
-            default_from_phone=config.get("from_phone"),
-        )
-        self._service_cache[connection_id] = svc
-        return svc
-
-    async def bolna_batch(self, connection_id: uuid.UUID) -> Any:
-        """Phase 13/D.2 — separate cache key from ``bolna`` because the
-        batch service is a different class with a different transport
-        shape. Both share the same rate-limit bucket via the connection
-        id."""
-        cache_key = uuid.UUID(int=connection_id.int ^ (1 << 127))
-        if cache_key in self._service_cache:
-            return self._service_cache[cache_key]
-        config = await self._load(connection_id, expected_provider="bolna")
-        from app.services.orchestration.integrations.bolna_batch import (
-            BolnaBatchService,
-        )
-        svc = BolnaBatchService(
-            base_url=config["base_url"],
-            api_key=config["api_key"],
-            default_from_phone=config.get("from_phone"),
-            connection_id=connection_id,
-        )
-        self._service_cache[cache_key] = svc
-        return svc
-
-    async def wati(self, connection_id: uuid.UUID) -> Any:
-        if connection_id in self._service_cache:
-            return self._service_cache[connection_id]
-        config = await self._load(connection_id, expected_provider="wati")
-        from app.services.orchestration.integrations.wati import WatiService
-        svc = WatiService(
-            base_url=config["base_url"],
-            wati_tenant_id=config["wati_tenant_id"],
-            api_token=config["api_token"],
-        )
-        self._service_cache[connection_id] = svc
-        return svc
-
-    async def lsq(self, connection_id: uuid.UUID) -> Any:
-        """Build an ``LsqWriter`` bound to the connection's per-tenant
-        credentials (Phase 10 commit 2). Cached per-run."""
-        if connection_id in self._service_cache:
-            return self._service_cache[connection_id]
-        config = await self._load(connection_id, expected_provider="lsq")
-        from app.services.orchestration.integrations.lsq import LsqWriter
-        svc = LsqWriter.with_config(config)
-        self._service_cache[connection_id] = svc
-        return svc
-
-    async def aisensy(self, connection_id: uuid.UUID) -> dict[str, Any]:
-        """AiSensy has no shared service class yet (commit 2 introduces one
-        with WATI / AiSensy split). For now expose the decrypted config."""
-        if connection_id in self._service_cache:
-            return self._service_cache[connection_id]
-        config = await self._load(connection_id, expected_provider="aisensy")
-        self._service_cache[connection_id] = config
-        return config
-
-    async def msg91(self, connection_id: uuid.UUID) -> dict[str, Any]:
-        if connection_id in self._service_cache:
-            return self._service_cache[connection_id]
-        config = await self._load(connection_id, expected_provider="msg91")
-        self._service_cache[connection_id] = config
-        return config
-
     async def webhook(self, connection_id: uuid.UUID) -> dict[str, Any]:
-        if connection_id in self._service_cache:
-            return self._service_cache[connection_id]
+        if connection_id in self._config_cache:
+            return self._config_cache[connection_id]
         config = await self._load(connection_id, expected_provider="webhook")
-        self._service_cache[connection_id] = config
+        self._config_cache[connection_id] = config
         return config
 
     async def get_config(
         self, connection_id: uuid.UUID, *, expected_provider: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Provider-agnostic accessor. Used by the SMS node which can bind to
-        either aisensy or msg91 — the handler reads ``provider`` off the row
-        before deciding how to dispatch."""
+        """Provider-agnostic accessor — adapters call this and shape the config themselves."""
         row = await self._db.scalar(
             select(ProviderConnection).where(
                 ProviderConnection.id == connection_id,

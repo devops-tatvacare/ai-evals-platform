@@ -122,7 +122,7 @@ def fake_analytics_session(fake_analytics_db):
 # verify schema/FK/CHECK/partial-index behaviour — mocks can't catch the bug class
 # the unqualified-SQL/model scanners are designed to flag. These fixtures connect
 # to the live local docker postgres (postgres:5432 inside the backend container,
-# localhost:5433 from the host). They are opt-in: only tests that depend on
+# localhost:5432 from the host). They are opt-in: only tests that depend on
 # `db_session` engage live-DB I/O.
 
 def _resolve_test_database_url() -> str:
@@ -130,7 +130,7 @@ def _resolve_test_database_url() -> str:
     url = os.environ.get("TEST_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if url:
         return url
-    return "postgresql+asyncpg://evals_user:evals_pass@localhost:5433/ai_evals_platform"
+    return "postgresql+asyncpg://evals_user:evals_pass@localhost:5432/ai_evals_platform"
 
 
 # Keep direct asyncpg call sites (e.g. orchestration SSE LISTEN/NOTIFY) on the
@@ -234,7 +234,7 @@ async def seed_full_run(db_session, seed_tenant_user_app):
     node_step = WorkflowRunNodeStep(
         id=_uuid.uuid4(), tenant_id=tenant_id, app_id=app_id,
         workflow_id=workflow.id, workflow_version_id=version.id,
-        run_id=run.id, node_id="n1", node_type="source.cohort_query",
+        run_id=run.id, node_id="n1", node_type="source.event_trigger",
         status="completed", started_at=_datetime.now(_timezone.utc),
         completed_at=_datetime.now(_timezone.utc),
     )

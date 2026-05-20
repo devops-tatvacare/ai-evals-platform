@@ -221,28 +221,24 @@ Notes:
 _EXAMPLES = """
 **Read this before copying.** Every example below has been validated
 against the live `_Config` schemas in Section 4 and the output-edge
-declarations in Section 3. If you change a node's config keys or output
-ids, you MUST update the example. The fastest way to confirm a
-hand-written workflow is correct: `POST /api/orchestration/workflows/validate`.
+declarations in Section 3. The fastest way to confirm a hand-written
+workflow is correct: `POST /api/orchestration/workflows/validate`.
 
-### 5.1 Minimal CRM workflow (one-hop Bolna call)
+### 5.1 Minimal event-driven workflow
 
 Notes:
 - `source.event_trigger.config` does **not** carry the event name. The
   event is named on the **trigger row** at the workflow level (`triggers`
   array below).
-- `crm.place_bolna_call` requires `connection_id` + `template_slug` at the
-  Pydantic level, plus `agent_id` at the publish dispatch-gate. All three
-  must be filled before publish; drafts may omit `agent_id`.
-- The bolna node's outgoing edges use `output_id` values from
-  `{"success", "exhausted"}` — never `"completed"` or `"default"`.
+- `core.webhook_out` requires `connection_id` and `url` at the Pydantic
+  level. Outgoing edges use `output_id` values from `{"success", "exhausted"}`.
 
 ```json
 {
   "schema_version": 1,
   "workflow": {
-    "name": "Bolna ping demo",
-    "description": "Single outbound voice call on MQL arrival.",
+    "name": "Forward MQL to ops",
+    "description": "Post each MQL payload to an internal endpoint.",
     "app_id": "inside-sales",
     "workflow_type": "crm",
     "visibility": "private"
@@ -257,15 +253,15 @@ Notes:
         "config": {}
       },
       {
-        "id": "call",
-        "type": "crm.place_bolna_call",
+        "id": "post",
+        "type": "core.webhook_out",
         "position": { "x": 320, "y": 0 },
-        "data": { "label": "Place call" },
+        "data": { "label": "Forward to ops" },
         "config": {
           "connection_id": "00000000-0000-0000-0000-000000000000",
-          "template_slug": "mql_first_touch",
-          "agent_id": "00000000-0000-0000-0000-000000000001",
-          "phone_field": "phone"
+          "url": "https://ops.internal/incoming/mql",
+          "method": "POST",
+          "body": { "lead_id": { "$payload": "lead_id" } }
         }
       },
       {
@@ -277,77 +273,14 @@ Notes:
       }
     ],
     "edges": [
-      { "id": "e1", "source": "src", "target": "call", "output_id": "default" },
-      { "id": "e2", "source": "call", "target": "done", "output_id": "success" }
+      { "id": "e1", "source": "src", "target": "post", "output_id": "default" },
+      { "id": "e2", "source": "post", "target": "done", "output_id": "success" }
     ],
     "canvas": {}
   },
   "triggers": [
     { "kind": "event", "event_name": "lead.mql.arrived", "params": {}, "active": true }
   ]
-}
-```
-
-### 5.2 Minimal clinical workflow (lab → care-team task)
-
-Notes:
-- `clinical.schedule_lab` requires both `test_code` and `test_name`. There
-  is no `due_in_days` field — frequency is expressed via the `frequency`
-  enum (see Section 4) or by re-firing the workflow on a schedule.
-- `clinical.assign_care_team_task` requires `task_label`. There is no
-  `task_type` or `due_in_days` field; cadence/SLA go on `cadence` /
-  `sla_hours` (see Section 4).
-- Clinical action outputs use `{"success", "exhausted"}`, never
-  `"queued"`.
-
-```json
-{
-  "schema_version": 1,
-  "workflow": {
-    "name": "DM2 routine labs",
-    "description": "Order HbA1c on cohort entry and queue a follow-up task.",
-    "app_id": "inside-sales",
-    "workflow_type": "clinical",
-    "visibility": "private"
-  },
-  "definition": {
-    "nodes": [
-      {
-        "id": "src",
-        "type": "source.cohort_query",
-        "position": { "x": 0, "y": 0 },
-        "data": { "label": "DM2 cohort" },
-        "config": { "source_ref": "dm2_active_v1" }
-      },
-      {
-        "id": "lab",
-        "type": "clinical.schedule_lab",
-        "position": { "x": 320, "y": 0 },
-        "data": { "label": "Order HbA1c" },
-        "config": { "test_code": "hba1c", "test_name": "HbA1c" }
-      },
-      {
-        "id": "task",
-        "type": "clinical.assign_care_team_task",
-        "position": { "x": 640, "y": 0 },
-        "data": { "label": "Follow up" },
-        "config": { "task_label": "Review HbA1c result and call patient" }
-      },
-      {
-        "id": "done",
-        "type": "sink.complete",
-        "position": { "x": 960, "y": 0 },
-        "data": { "label": "Done" },
-        "config": {}
-      }
-    ],
-    "edges": [
-      { "id": "e1", "source": "src", "target": "lab", "output_id": "default" },
-      { "id": "e2", "source": "lab", "target": "task", "output_id": "success" },
-      { "id": "e3", "source": "task", "target": "done", "output_id": "success" }
-    ],
-    "canvas": {}
-  }
 }
 ```
 

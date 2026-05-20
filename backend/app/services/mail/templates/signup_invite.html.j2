@@ -1,0 +1,34 @@
+{% extends "_base.html.j2" %}
+{% block content %}
+<h1 class="m-title force-light" style="margin:0 0 12px;font-size:26px;line-height:1.2;letter-spacing:-0.01em;color:#111827;font-weight:700;">
+  Let's set up your account
+</h1>
+
+<p class="m-body force-light-muted" style="margin:0 0 28px;font-size:15px;line-height:1.6;color:#4b5563;">
+  {% if tenant_name and not is_platform_tenant %}
+  {% if inviter_name %}{{ inviter_name }} invited you{% else %}You've been invited{% endif %} to join <strong style="color:#111827;font-weight:600;">{{ tenant_name }}</strong> on {{ platform_name }} AI Platform. Use the secure link below to finish signing up.
+  {% else %}
+  {% if inviter_name %}{{ inviter_name }} invited you{% else %}You've been invited{% endif %} to join {{ platform_name }} AI Platform. Use the secure link below to finish signing up.
+  {% endif %}
+</p>
+
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
+  <tr>
+    <td align="center" bgcolor="#2D1B69" style="border-radius:10px;background:#2D1B69;">
+      <a href="{{ invite_url }}"
+         style="display:inline-block;padding:13px 30px;font-size:14px;font-weight:600;letter-spacing:0.005em;color:#ffffff;text-decoration:none;border-radius:10px;">
+        Set up your account
+      </a>
+    </td>
+  </tr>
+</table>
+
+<p style="margin:0 0 6px;font-size:13px;color:#6b7280;line-height:1.5;">
+  This invite expires on <strong style="color:#374151;font-weight:600;">{{ expires_at_display }}</strong>.
+</p>
+
+<p style="margin:14px 0 0;font-size:12px;color:#6b7280;line-height:1.55;">
+  If the button doesn't work, copy and paste this link into your browser:<br>
+  <a href="{{ invite_url }}" style="color:#5C2680;text-decoration:underline;word-break:break-all;">{{ invite_url }}</a>
+</p>
+{% endblock %}
